@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.2
+ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.3
 FROM ${FRAMEWORK_IMAGE}
 
 ARG VCS_REF=unknown

@@ -8,8 +8,8 @@ framework_dir="${WASM_GAME_FRAMEWORK_DIR:-${work_root}/wasm-game-framework}"
 image_repo="${IMAGE_REPO:-theodorecharles/idtech4-wasm}"
 image_tag="${IMAGE_TAG:-dev}"
 
-test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.2"
-test "$(git -C "${framework_dir}" rev-parse HEAD)" = "e4b78d6a1ab9992f35c0a098d60f15d8e1c3e89b"
+test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.3"
+test "$(git -C "${framework_dir}" rev-parse HEAD)" = "be0b81301c5f12f09e445a3bc765b7709603265e"
 test "$(md5sum "${site}/baseoq4/pak0.pk4" | awk '{print $1}')" = "17550cb028326cdf1cee440bc5d73d74"
 test "$(md5sum "${site}/baseoq4/pak1.pk4" | awk '{print $1}')" = "c3434e1d28bebdc367d6e50f3b1fda3a"
 test "$(stat -c '%s' "${site}/baseoq4/pak0.pk4")" = "4285437"
@@ -24,7 +24,7 @@ if [[ -n "${unexpected_package}" ]]; then
   exit 1
 fi
 
-framework_image="wasm-game-framework:0.7.2"
+framework_image="wasm-game-framework:0.7.3"
 "${framework_dir}/scripts/build-base-image.sh" "${framework_image}"
 
 for variant in suite doom3 doom3-mp roe quake4 quake4-mp; do

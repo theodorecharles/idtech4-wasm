@@ -8,8 +8,8 @@ doom_web="${work_root}/dhewm3/build/web"
 quake_web="${work_root}/openq4/build/web"
 site="${repo_root}/build/site"
 
-test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.2"
-test "$(git -C "${framework_dir}" rev-parse HEAD)" = "e4b78d6a1ab9992f35c0a098d60f15d8e1c3e89b"
+test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.3"
+test "$(git -C "${framework_dir}" rev-parse HEAD)" = "be0b81301c5f12f09e445a3bc765b7709603265e"
 for required in \
   "${doom_web}/dhewm3-base.js" "${doom_web}/dhewm3-base.wasm" \
   "${doom_web}/dhewm3-roe.js" "${doom_web}/dhewm3-roe.wasm" \
@@ -110,5 +110,8 @@ EOF
 )"
 actual_files="$(find "${site}" -type f -printf '%P\n' | sort)"
 test "${actual_files}" = "${expected_files}"
+
+node "${repo_root}/scripts/test-adapter.mjs" "${site}"
+node "${framework_dir}/scripts/check-game-package.js" "${site}"
 
 printf 'Staged retail-free id Tech 4 family site at %s\n' "${site}"

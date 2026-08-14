@@ -26,6 +26,8 @@
   "fpsTargets": [30, 60, 120],
   "defaultFps": 60,
   "defaultDynamicQuality": false,
+  "dynamicQuality": false,
+  "fps": false,
   "defaultPlayerName": "Player",
   "fullscreen": true,
   "defaultFullscreen": false,
@@ -33,14 +35,15 @@
   "variants": {
     "doom3": {
       "title": "Doom 3",
-      "description": "Play the Doom 3 single-player campaign.",
+      "description": "Still in development — the Doom 3 browser renderer is not yet complete.",
       "loadingTitle": "Starting Doom 3…",
+      "identity": false,
       "defaultPlayerName": "Marine",
       "icon": "/doom3.ico",
       "pwa": {
         "name": "Doom 3",
         "shortName": "Doom 3",
-        "description": "Doom 3 single-player in the browser.",
+        "description": "Still in development — Doom 3 browser renderer work is ongoing.",
         "themeColor": "#67130c",
         "backgroundColor": "#000000",
         "icons": [
@@ -50,14 +53,15 @@
     },
     "doom3-mp": {
       "title": "Doom 3 Multiplayer",
-      "description": "Open the Doom 3 multiplayer client.",
+      "description": "Still in development — the Doom 3 multiplayer browser renderer is not yet complete.",
       "loadingTitle": "Starting Doom 3 multiplayer…",
+      "identity": true,
       "defaultPlayerName": "Marine",
       "icon": "/doom3.ico",
       "pwa": {
         "name": "Doom 3 Multiplayer",
         "shortName": "Doom 3 MP",
-        "description": "Doom 3 multiplayer in the browser.",
+        "description": "Still in development — Doom 3 multiplayer browser renderer work is ongoing.",
         "themeColor": "#67130c",
         "backgroundColor": "#000000",
         "icons": [
@@ -67,14 +71,15 @@
     },
     "roe": {
       "title": "Doom 3: Resurrection of Evil",
-      "description": "Play the Resurrection of Evil expansion.",
+      "description": "Still in development — the Resurrection of Evil browser renderer is not yet complete.",
       "loadingTitle": "Starting Resurrection of Evil…",
+      "identity": false,
       "defaultPlayerName": "Marine",
       "icon": "/roe.png",
       "pwa": {
         "name": "Doom 3: Resurrection of Evil",
         "shortName": "Doom 3: RoE",
-        "description": "Resurrection of Evil in the browser.",
+        "description": "Still in development — Resurrection of Evil browser renderer work is ongoing.",
         "themeColor": "#32100c",
         "backgroundColor": "#000000",
         "icons": [
@@ -84,8 +89,9 @@
     },
     "quake4": {
       "title": "Quake 4",
-      "description": "Play the Quake 4 single-player campaign.",
+      "description": "Still in development — the Quake 4 browser renderer is not yet complete.",
       "loadingTitle": "Starting Quake 4…",
+      "identity": false,
       "defaultPlayerName": "Kane",
       "icon": "/quake4.ico",
       "background": "/quake4-background.png",
@@ -94,7 +100,7 @@
       "pwa": {
         "name": "Quake 4",
         "shortName": "Quake 4",
-        "description": "Quake 4 single-player in the browser.",
+        "description": "Still in development — Quake 4 browser renderer work is ongoing.",
         "themeColor": "#5f180d",
         "backgroundColor": "#000000",
         "icons": [
@@ -104,8 +110,9 @@
     },
     "quake4-mp": {
       "title": "Quake 4 Multiplayer",
-      "description": "Open the Quake 4 multiplayer client.",
+      "description": "Still in development — the Quake 4 multiplayer browser renderer is not yet complete.",
       "loadingTitle": "Starting Quake 4 multiplayer…",
+      "identity": true,
       "defaultPlayerName": "Kane",
       "icon": "/quake4.ico",
       "background": "/quake4-background.png",
@@ -114,7 +121,7 @@
       "pwa": {
         "name": "Quake 4 Multiplayer",
         "shortName": "Quake 4 MP",
-        "description": "Quake 4 multiplayer in the browser.",
+        "description": "Still in development — Quake 4 multiplayer browser renderer work is ongoing.",
         "themeColor": "#5f180d",
         "backgroundColor": "#000000",
         "icons": [

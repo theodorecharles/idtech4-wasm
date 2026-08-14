@@ -8,7 +8,7 @@ Do not submit anything upstream. All work is local downstream work and all gener
 
 ## Exact inputs
 
-`source-lock.json` is authoritative. A build must stop if the framework is not version `0.7.0` at commit `536d919ef6e6cd171aa826812db9f888ffbf04a3`. It must also stop if a native checkout or patch checksum differs from the lock.
+`source-lock.json` is authoritative. A build must stop if the framework is not version `0.7.3` at commit `be0b81301c5f12f09e445a3bc765b7709603265e`. It must also stop if a native checkout or patch checksum differs from the lock.
 
 The family repository stores neither complete source forks nor retail content. It reconstructs the browser ports by checking out exact native commits, verifying `patches/SHA256SUMS`, and applying the committed patch queues in `.work/`.
 

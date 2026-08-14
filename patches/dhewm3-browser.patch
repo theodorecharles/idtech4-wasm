@@ -45,13 +45,13 @@ index f174fc5..55bf8ca 100644
 +*.PK4
 diff --git a/Dockerfile b/Dockerfile
 new file mode 100644
-index 0000000..4c9d661
+index 0000000..d2b007a
 --- /dev/null
 +++ b/Dockerfile
 @@ -0,0 +1,27 @@
 +# syntax=docker/dockerfile:1.7
 +
-+ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.2
++ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.3
 +FROM ${FRAMEWORK_IMAGE}
 +
 +ARG VCS_REF=unknown
@@ -78,7 +78,7 @@ index 0000000..4c9d661
 +  CMD wget -q -O - http://127.0.0.1:8088/ >/dev/null
 diff --git a/RUNBOOK.md b/RUNBOOK.md
 new file mode 100644
-index 0000000..988fc3f
+index 0000000..cb79b01
 --- /dev/null
 +++ b/RUNBOOK.md
 @@ -0,0 +1,101 @@
@@ -101,8 +101,8 @@ index 0000000..988fc3f
 +
 +## Canonical browser contract
 +
-+The repository pins `wasm-game-framework` 0.7.2 at public commit
-+`e4b78d6a1ab9992f35c0a098d60f15d8e1c3e89b`.
++The repository pins `wasm-game-framework` 0.7.3 at public commit
++`be0b81301c5f12f09e445a3bc765b7709603265e`.
 +
 +Downstream owns only:
 +
@@ -152,7 +152,7 @@ index 0000000..988fc3f
 +
 +The build creates two native-source Emscripten clients (`base` and `roe`) and
 +four framework images (suite, Doom 3 SP, Doom 3 MP, RoE). The suite and locked
-+0.7.2 images pass HTTP bootstrap/metadata, WASM range, and `/data` isolation
++0.7.3 images pass HTTP bootstrap/metadata, WASM range, and `/data` isolation
 +checks.
 +
 +## Verified browser boundary (2026-08-14)
@@ -1162,7 +1162,7 @@ index 0000000..64356a8
 +echo "Built Doom 3 suite plus doom3, doom3-mp, and roe locked images."
 diff --git a/scripts/build-web.sh b/scripts/build-web.sh
 new file mode 100755
-index 0000000..8fd300d
+index 0000000..45075e6
 --- /dev/null
 +++ b/scripts/build-web.sh
 @@ -0,0 +1,80 @@
@@ -1178,8 +1178,8 @@ index 0000000..8fd300d
 +framework_dir="${D3WASM_FRAMEWORK_DIR:-${repo_root}/../wasm-game-framework}"
 +
 +framework_version="$(node -p "require('${framework_dir}/package.json').version")"
-+if [[ "${framework_version}" != "0.7.2" ]]; then
-+	echo "doom3-wasm requires wasm-game-framework 0.7.2, found ${framework_version}." >&2
++if [[ "${framework_version}" != "0.7.3" ]]; then
++	echo "doom3-wasm requires wasm-game-framework 0.7.3, found ${framework_version}." >&2
 +	exit 1
 +fi
 +
@@ -1361,10 +1361,10 @@ index 0000000..29ba1e5
 +};
 diff --git a/web/game-adapter.js b/web/game-adapter.js
 new file mode 100644
-index 0000000..4469a48
+index 0000000..5282c54
 --- /dev/null
 +++ b/web/game-adapter.js
-@@ -0,0 +1,168 @@
+@@ -0,0 +1,184 @@
 +(() => {
 +  'use strict';
 +
@@ -1375,7 +1375,17 @@ index 0000000..4469a48
 +  });
 +  const scancodes = Object.freeze({
 +    Escape: 41, Enter: 40, NumpadEnter: 88, Backspace: 42, Tab: 43, Space: 44,
++    Minus: 45, Equal: 46, BracketLeft: 47, BracketRight: 48, Backslash: 49,
++    Semicolon: 51, Quote: 52, Backquote: 53, Comma: 54, Period: 55, Slash: 56,
++    CapsLock: 57, F1: 58, F2: 59, F3: 60, F4: 61, F5: 62, F6: 63,
++    F7: 64, F8: 65, F9: 66, F10: 67, F11: 68, F12: 69,
++    PrintScreen: 70, ScrollLock: 71, Pause: 72,
++    Insert: 73, Home: 74, PageUp: 75, Delete: 76, End: 77, PageDown: 78,
 +    ArrowRight: 79, ArrowLeft: 80, ArrowDown: 81, ArrowUp: 82,
++    NumLock: 83, NumpadDivide: 84, NumpadMultiply: 85, NumpadSubtract: 86,
++    NumpadAdd: 87, Numpad1: 89, Numpad2: 90, Numpad3: 91, Numpad4: 92,
++    Numpad5: 93, Numpad6: 94, Numpad7: 95, Numpad8: 96, Numpad9: 97,
++    Numpad0: 98, NumpadDecimal: 99,
 +    ShiftLeft: 225, ShiftRight: 229, ControlLeft: 224, ControlRight: 228,
 +    AltLeft: 226, AltRight: 230
 +  });
@@ -1384,6 +1394,7 @@ index 0000000..4469a48
 +  let ownerData = null;
 +  let started = false;
 +  let state = 'menu';
++  let captured = false;
 +  let lastResize = null;
 +
 +  function keyScan(code) {
@@ -1524,9 +1535,14 @@ index 0000000..4469a48
 +      lastResize = detail;
 +      if (started) post({ type: 'resize', width: detail.requestedWidth, height: detail.requestedHeight });
 +    },
-+    pointerMove(detail) { if (started) post({ type: 'pointer-absolute', x: detail.x, y: detail.y }); },
++    pointerMove(detail) {
++      if (started && !captured) post({ type: 'pointer-absolute', x: detail.x, y: detail.y });
++    },
 +    pointerButton(detail) { if (started) post({ type: 'pointer-button', button: detail.button, down: detail.pressed, x: detail.x, y: detail.y }); },
-+    inputCaptureChanged(captured) { if (started) post({ type: 'capture', captured }); },
++    inputCaptureChanged(nextCaptured) {
++      captured = Boolean(nextCaptured);
++      if (started) post({ type: 'capture', captured });
++    },
 +    captureLost() { if (started) post({ type: 'open-menu' }); },
 +    preferencesChanged(values) {
 +      if (started) post({ type: 'preferences', playerName: values.playerName, engineArguments: profileArguments[values.qualityProfile] || profileArguments.high });
@@ -1588,10 +1604,10 @@ index 0000000..fd1feee
 +}
 diff --git a/web/wasm-game.json b/web/wasm-game.json
 new file mode 100644
-index 0000000..aaa6aa3
+index 0000000..8f54aec
 --- /dev/null
 +++ b/web/wasm-game.json
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,90 @@
 +{
 +  "id": "doom3",
 +  "kicker": "id Tech 4",
@@ -1620,6 +1636,8 @@ index 0000000..aaa6aa3
 +  "fpsTargets": [30, 60, 120],
 +  "defaultFps": 60,
 +  "defaultDynamicQuality": false,
++  "dynamicQuality": false,
++  "fps": false,
 +  "defaultPlayerName": "Marine",
 +  "fullscreen": true,
 +  "defaultFullscreen": false,
@@ -1629,13 +1647,14 @@ index 0000000..aaa6aa3
 +  "variants": {
 +    "doom3": {
 +      "title": "Doom 3",
-+      "description": "Play the Doom 3 single-player campaign.",
++      "description": "Still in development — the Doom 3 browser renderer is not yet complete.",
 +      "loadingTitle": "Starting Doom 3…",
++      "identity": false,
 +      "icon": "/doom3.ico",
 +      "pwa": {
 +        "name": "Doom 3",
 +        "shortName": "Doom 3",
-+        "description": "Doom 3 single-player in the browser.",
++        "description": "Still in development — Doom 3 browser renderer work is ongoing.",
 +        "themeColor": "#67130c",
 +        "backgroundColor": "#000000",
 +        "icons": [
@@ -1645,13 +1664,14 @@ index 0000000..aaa6aa3
 +    },
 +    "doom3-mp": {
 +      "title": "Doom 3 Multiplayer",
-+      "description": "Open Doom 3's multiplayer client.",
++      "description": "Still in development — the Doom 3 multiplayer browser renderer is not yet complete.",
 +      "loadingTitle": "Starting Doom 3 multiplayer…",
++      "identity": true,
 +      "icon": "/doom3.ico",
 +      "pwa": {
 +        "name": "Doom 3 Multiplayer",
 +        "shortName": "Doom 3 MP",
-+        "description": "Doom 3 multiplayer in the browser.",
++        "description": "Still in development — Doom 3 multiplayer browser renderer work is ongoing.",
 +        "themeColor": "#67130c",
 +        "backgroundColor": "#000000",
 +        "icons": [
@@ -1661,13 +1681,14 @@ index 0000000..aaa6aa3
 +    },
 +    "roe": {
 +      "title": "Doom 3: Resurrection of Evil",
-+      "description": "Play the Resurrection of Evil expansion.",
++      "description": "Still in development — the Resurrection of Evil browser renderer is not yet complete.",
 +      "loadingTitle": "Starting Resurrection of Evil…",
++      "identity": false,
 +      "icon": "/roe.png",
 +      "pwa": {
 +        "name": "Doom 3: Resurrection of Evil",
 +        "shortName": "Doom 3: RoE",
-+        "description": "Resurrection of Evil in the browser.",
++        "description": "Still in development — Resurrection of Evil browser renderer work is ongoing.",
 +        "themeColor": "#32100c",
 +        "backgroundColor": "#000000",
 +        "icons": [

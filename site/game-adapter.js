@@ -8,7 +8,17 @@
   });
   const scancodes = Object.freeze({
     Escape: 41, Enter: 40, NumpadEnter: 88, Backspace: 42, Tab: 43, Space: 44,
+    Minus: 45, Equal: 46, BracketLeft: 47, BracketRight: 48, Backslash: 49,
+    Semicolon: 51, Quote: 52, Backquote: 53, Comma: 54, Period: 55, Slash: 56,
+    CapsLock: 57, F1: 58, F2: 59, F3: 60, F4: 61, F5: 62, F6: 63,
+    F7: 64, F8: 65, F9: 66, F10: 67, F11: 68, F12: 69,
+    PrintScreen: 70, ScrollLock: 71, Pause: 72,
+    Insert: 73, Home: 74, PageUp: 75, Delete: 76, End: 77, PageDown: 78,
     ArrowRight: 79, ArrowLeft: 80, ArrowDown: 81, ArrowUp: 82,
+    NumLock: 83, NumpadDivide: 84, NumpadMultiply: 85, NumpadSubtract: 86,
+    NumpadAdd: 87, Numpad1: 89, Numpad2: 90, Numpad3: 91, Numpad4: 92,
+    Numpad5: 93, Numpad6: 94, Numpad7: 95, Numpad8: 96, Numpad9: 97,
+    Numpad0: 98, NumpadDecimal: 99,
     ShiftLeft: 225, ShiftRight: 229, ControlLeft: 224, ControlRight: 228,
     AltLeft: 226, AltRight: 230
   });
@@ -24,6 +34,7 @@
   let ownerData = null;
   let started = false;
   let state = 'menu';
+  let captured = false;
   let lastResize = null;
 
   function keyScan(code) {
@@ -146,9 +157,14 @@
       lastResize = detail;
       if (started) post({ type: 'resize', width: detail.requestedWidth, height: detail.requestedHeight });
     },
-    pointerMove(detail) { if (started) post({ type: 'pointer-absolute', x: detail.x, y: detail.y }); },
+    pointerMove(detail) {
+      if (started && !captured) post({ type: 'pointer-absolute', x: detail.x, y: detail.y });
+    },
     pointerButton(detail) { if (started) post({ type: 'pointer-button', button: detail.button, down: detail.pressed, x: detail.x, y: detail.y }); },
-    inputCaptureChanged(captured) { if (started) post({ type: 'capture', captured }); },
+    inputCaptureChanged(nextCaptured) {
+      captured = Boolean(nextCaptured);
+      if (started) post({ type: 'capture', captured });
+    },
     captureLost() { if (started) post({ type: 'open-menu' }); },
     preferencesChanged(values) {
       if (started) post({ type: 'preferences', playerName: values.playerName, engineArguments: profileArguments[values.qualityProfile] || profileArguments.high });
