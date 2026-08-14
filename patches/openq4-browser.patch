@@ -57,13 +57,13 @@ index d2e194d0..ea328c9c 100644
 +content/baseoq4/pak0/fonts/*.ttf
 diff --git a/Dockerfile b/Dockerfile
 new file mode 100644
-index 00000000..0db1145f
+index 00000000..9cba237b
 --- /dev/null
 +++ b/Dockerfile
 @@ -0,0 +1,39 @@
 +# syntax=docker/dockerfile:1.7
 +
-+ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.1
++ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.2
 +FROM ${FRAMEWORK_IMAGE}
 +
 +ARG VCS_REF=unknown
@@ -102,7 +102,7 @@ index 00000000..0db1145f
 +  CMD wget -q -O - http://127.0.0.1:8088/ >/dev/null
 diff --git a/RUNBOOK.md b/RUNBOOK.md
 new file mode 100644
-index 00000000..a784cdce
+index 00000000..11c8d99f
 --- /dev/null
 +++ b/RUNBOOK.md
 @@ -0,0 +1,116 @@
@@ -124,8 +124,8 @@ index 00000000..a784cdce
 +
 +## Canonical browser contract
 +
-+The repository pins `wasm-game-framework` 0.7.1 at public commit
-+`9359fb186399d0c608cbcd063f7e6fd03eb7c210`.
++The repository pins `wasm-game-framework` 0.7.2 at public commit
++`e4b78d6a1ab9992f35c0a098d60f15d8e1c3e89b`.
 +
 +Downstream owns only:
 +
@@ -191,8 +191,8 @@ index 00000000..a784cdce
 +
 +## Verified browser boundary (2026-08-14)
 +
-+Serialized Chrome tests exercised both SP and MP from the framework 0.7.1 suite
-+image with the exact Steam data set.
++Serialized Chrome tests exercised both SP and MP from the canonical suite image
++with the exact Steam data set.
 +
 +- The browser restored all 32 PK4s from its private cache.
 +- The engine mounted both source-derived OpenQ4 packages above.
@@ -34990,7 +34990,7 @@ index 00000000..98fdfad8
 +echo "Built Quake 4 suite plus quake4 and quake4-mp locked images (no retail q4base data)."
 diff --git a/scripts/build-web.sh b/scripts/build-web.sh
 new file mode 100755
-index 00000000..5f749b7e
+index 00000000..167776aa
 --- /dev/null
 +++ b/scripts/build-web.sh
 @@ -0,0 +1,119 @@
@@ -35006,8 +35006,8 @@ index 00000000..5f749b7e
 +framework_dir="${Q4WASM_FRAMEWORK_DIR:-${repo_root}/../wasm-game-framework}"
 +
 +framework_version="$(node -p "require('${framework_dir}/package.json').version")"
-+if [[ "${framework_version}" != "0.7.1" ]]; then
-+	echo "quake4-wasm requires wasm-game-framework 0.7.1, found ${framework_version}." >&2
++if [[ "${framework_version}" != "0.7.2" ]]; then
++	echo "quake4-wasm requires wasm-game-framework 0.7.2, found ${framework_version}." >&2
 +	exit 1
 +fi
 +
