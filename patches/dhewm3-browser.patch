@@ -1,0 +1,1679 @@
+diff --git a/.dockerignore b/.dockerignore
+new file mode 100644
+index 0000000..8723739
+--- /dev/null
++++ b/.dockerignore
+@@ -0,0 +1,23 @@
++.git
++.github
++.cache
++data
++runtime
++artifacts
++references
++*.pk4
++*.PK4
++*.pk3
++*.PK3
++build/*
++!build/web/
++!build/web/d3-worker.js
++!build/web/game-adapter.js
++!build/web/wasm-game.json
++!build/web/wasm-game-data.json
++!build/web/wasm-game-framework.json
++!build/web/doom3.ico
++!build/web/dhewm3-base.js
++!build/web/dhewm3-base.wasm
++!build/web/dhewm3-roe.js
++!build/web/dhewm3-roe.wasm
+diff --git a/.gitignore b/.gitignore
+index f174fc5..55bf8ca 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -14,3 +14,11 @@
+ /.vs*
+ 
+ /neo/CMakeSettings.json
++
++# doom3-wasm local/runtime data
++references/
++data/
++runtime/
++artifacts/runtime/
++*.pk4
++*.PK4
+diff --git a/Dockerfile b/Dockerfile
+new file mode 100644
+index 0000000..1e2856a
+--- /dev/null
++++ b/Dockerfile
+@@ -0,0 +1,27 @@
++# syntax=docker/dockerfile:1.7
++
++ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.0
++FROM ${FRAMEWORK_IMAGE}
++
++ARG VCS_REF=unknown
++LABEL org.opencontainers.image.title="Doom 3 WASM" \
++      org.opencontainers.image.description="Owner-data Doom 3 and RoE browser clients" \
++      org.opencontainers.image.source="https://github.com/theodorecharles/doom3-wasm" \
++      org.opencontainers.image.revision="$VCS_REF"
++
++COPY build/web/ /opt/game-site/
++COPY COPYING.txt /opt/game-site/DHEWM3-COPYING.txt
++
++RUN mkdir -p /data/base /data/d3xp /data/custom_maps \
++    && printf '%s\n' \
++        'Corresponding source for this image:' \
++        "https://github.com/theodorecharles/doom3-wasm/tree/${VCS_REF}" \
++        'The image contains engine/runtime code only; supply proprietary Doom 3/RoE data through /data.' \
++        > /opt/game-site/SOURCE-OFFER.txt
++
++ENV WASM_GAME_VARIANT=suite
++
++VOLUME ["/data"]
++EXPOSE 8088/tcp
++HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
++  CMD wget -q -O - http://127.0.0.1:8088/ >/dev/null
+diff --git a/RUNBOOK.md b/RUNBOOK.md
+new file mode 100644
+index 0000000..13b999e
+--- /dev/null
++++ b/RUNBOOK.md
+@@ -0,0 +1,101 @@
++# Doom 3 WebAssembly runbook
++
++Status: **Still in development**
++
++This downstream ports the native dhewm3 engine to Emscripten for Doom 3,
++Doom 3 multiplayer, and Resurrection of Evil. It does not reuse an existing
++WebAssembly port and it does not include retail PK4s.
++
++## Rules
++
++- Do not submit, push, file, or discuss this work upstream.
++- Keep all changes in this downstream repository.
++- Never commit or bake retail `base`/`d3xp` data into source or image layers.
++- Keep `/data` private; the HTTP server must return 404 for `/data` and every
++  child path.
++- Test Doom 3 SP, Doom 3 MP, and RoE as distinct variants.
++
++## Canonical browser contract
++
++The repository pins `wasm-game-framework` 0.7.0 at public commit
++`536d919ef6e6cd171aa826812db9f888ffbf04a3`.
++
++Downstream owns only:
++
++- `web/wasm-game.json`: declarative shell, variant, PWA, icon, viewport,
++  graphics, and fullscreen metadata;
++- `web/wasm-game-data.json`: exact owner-data policy;
++- `web/game-adapter.js`: framework-to-engine state/input/data adapter;
++- `web/d3-worker.js`: worker bootstrap and Emscripten filesystem mounts;
++- engine JS/WASM and source-licensed icon assets.
++
++There is no downstream `index.html`, shell stylesheet, service worker, or web
++manifest. The framework generates those artifacts and provides the
++`WasmGameFramework` API, `wasm-game-framework-*` events/classes, owner-data
++container provisioning, IndexedDB browser cache, remembered launch fullscreen,
++variant-aware PWA metadata, responsive canvas policy, and security headers.
++
++## Variants and images
++
++- `doom3`: Doom 3 single player — **Still in development**
++- `doom3-mp`: Doom 3 multiplayer — **Still in development**
++- `roe`: Doom 3: Resurrection of Evil — **Still in development**
++
++`scripts/build-docker.sh` builds one suite image plus a locked image for each
++variant. Doom 3 SP and MP use the exact nine-file base policy. RoE adds the exact
++two-file `d3xp` policy. All variants share one namespace so the browser stores
++identical base PK4s once.
++
++## Owner data flow
++
++The owner mounts registered data at `/data/base` and, for RoE, `/data/d3xp`.
++On first use the framework streams the exact manifest files from the container
++into its private browser cache. Later launches restore unchanged files from
++IndexedDB. The worker mounts browser `File` objects read-only through WORKERFS
++at `/owner-data`; saves/configuration use IDBFS at `/save`.
++
++Retail files are never copied into `build/web`. Docker staging rejects every
++`.pk4` and `.pak` under that directory.
++
++## Build
++
++```bash
++cd /home/ted/Development/wasm/doom3-wasm
++source /home/ted/emsdk/emsdk_env.sh
++JOBS=4 ./scripts/build-web.sh
++IMAGE_REPO=local/doom3-wasm IMAGE_TAG=dev ./scripts/build-docker.sh
++```
++
++The build creates two native-source Emscripten clients (`base` and `roe`) and
++four framework images (suite, Doom 3 SP, Doom 3 MP, RoE). The suite and locked
++0.7.0 images pass HTTP bootstrap/metadata, WASM range, and `/data` isolation
++checks.
++
++## Verified browser boundary (2026-08-14)
++
++A serialized Chrome test with the owner Steam data verified:
++
++- browser owner-data caching and restore;
++- all nine base PK4s mounted by the real native engine;
++- a worker-safe direct WebGL 2 context on the transferred OffscreenCanvas;
++- no selector/`document` access during context creation or resize;
++- decl loading and renderer capability discovery.
++
++The current blocker is `R_ReloadARBPrograms`: the desktop ARB program path is
++not a valid final WebGL 2 renderer. Implement valid GLSL ES 3.00 shaders and
++reach the authentic menu before changing any game status to **Live**. Browser
++audio also remains disabled when OpenAL cannot open a device.
++
++## Acceptance sequence
++
++1. Replace/translate the ARB program path for WebGL 2.
++2. Render the authentic Doom 3 SP, MP, and RoE menus.
++3. Verify dynamic aspect-correct sizing and 4:3 native menu pointer mapping.
++4. Start Doom 3 campaign, an RoE campaign, and one MP map.
++5. Verify WASD, relative mouse, Escape/menu state, console editing, and normal
++   browser shortcuts outside capture.
++6. Restore browser audio and persistent saves.
++7. Rebuild all images and test PWA metadata, service-worker behavior, headers,
++   ranges, `/data` isolation, and all three variants in serialized Chrome.
++
++Upstream contacted: **no**.
+diff --git a/neo/CMakeLists.txt b/neo/CMakeLists.txt
+index 98972d8..9d29b2a 100644
+--- a/neo/CMakeLists.txt
++++ b/neo/CMakeLists.txt
+@@ -55,6 +55,9 @@ if(MSVC)
+ 	option(TOOLS		"Build the tools game code (Visual Studio+SDL2/SDL3 only)" OFF)
+ endif()
+ option(DEDICATED	"Build the dedicated server" OFF)
++option(D3WASM_CLIENT "Build the initial single-threaded Emscripten client" OFF)
++set(D3WASM_GAME "base" CACHE STRING "Hardlinked browser game: base or roe")
++set_property(CACHE D3WASM_GAME PROPERTY STRINGS base roe)
+ option(ONATIVE		"Optimize for the host CPU" OFF)
+ option(SDL2			"Use SDL2 instead of SDL1.2" ON)
+ option(SDL3			"Use SDL3 instead of SDL2 or SDL1.2" OFF)
+@@ -65,6 +68,54 @@ option(TRACY		"Build and integrate the Tracy profiler, requires HARDLINK_GAME" O
+ 
+ option(HARDLINK_GAME "Compile gamecode into executable (no game DLLs)" OFF)
+ 
++if(D3WASM_CLIENT)
++	if(NOT EMSCRIPTEN)
++		message(FATAL_ERROR "D3WASM_CLIENT requires the Emscripten CMake toolchain")
++	endif()
++
++	# Base and RoE use separate statically linked browser executables. This keeps
++	# dlopen out of the browser path while preserving both native gamecode trees.
++	set(DEDICATED OFF CACHE BOOL "Build the dedicated server" FORCE)
++	set(HARDLINK_GAME ON CACHE BOOL "Compile gamecode into executable (no game DLLs)" FORCE)
++	if(D3WASM_GAME STREQUAL "roe")
++		set(BASE OFF CACHE BOOL "Build the base game code" FORCE)
++		set(D3XP ON CACHE BOOL "Build the d3xp game code" FORCE)
++	elseif(D3WASM_GAME STREQUAL "base")
++		set(BASE ON CACHE BOOL "Build the base game code" FORCE)
++		set(D3XP OFF CACHE BOOL "Build the d3xp game code" FORCE)
++	else()
++		message(FATAL_ERROR "D3WASM_GAME must be base or roe")
++	endif()
++	set(SDL2 ON CACHE BOOL "Use SDL2 instead of SDL1.2" FORCE)
++	set(SDL3 OFF CACHE BOOL "Use SDL3 instead of SDL2 or SDL1.2" FORCE)
++	set(IMGUI OFF CACHE BOOL "Build with Dear ImGui integration" FORCE)
++	set(CMAKE_DISABLE_FIND_PACKAGE_CURL TRUE)
++	add_compile_options("-sUSE_SDL=2" "-fexceptions")
++	set(D3WASM_LINK_FLAGS
++		"-sUSE_SDL=2"
++		"-sALLOW_MEMORY_GROWTH=1"
++		"-sINITIAL_MEMORY=134217728"
++		"-sMAXIMUM_MEMORY=2147483648"
++		"-sSTACK_SIZE=5242880"
++		"-sFORCE_FILESYSTEM=1"
++		"-sMIN_WEBGL_VERSION=2"
++		"-sMAX_WEBGL_VERSION=2"
++		"-sUSE_WEBGL2=1"
++		"-sLEGACY_GL_EMULATION=1"
++		"-sOFFSCREENCANVAS_SUPPORT=1"
++		"-sEXIT_RUNTIME=0"
++		"-sENVIRONMENT=worker"
++		"-sEXPORTED_RUNTIME_METHODS=FS,WORKERFS,IDBFS"
++		"-sASSERTIONS=1"
++		"-sDISABLE_EXCEPTION_CATCHING=0"
++		"-lworkerfs.js"
++		"-lidbfs.js"
++	)
++	string(REPLACE ";" " " D3WASM_LINK_FLAGS "${D3WASM_LINK_FLAGS}")
++	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${D3WASM_LINK_FLAGS}")
++	add_definitions(-DD3WASM_CLIENT=1)
++endif()
++
+ if(NOT MSVC) # GCC/clang or compatible, hopefully
+ 	option(FORCE_COLORED_OUTPUT "Always produce ANSI-colored compiler warnings/errors (GCC/Clang only; esp. useful with ninja)." OFF)
+ 	option(ASAN		"Enable GCC/Clang Adress Sanitizer (ASan)" OFF) # TODO: MSVC might also support this, somehow?
+@@ -197,6 +248,13 @@ endif()
+ find_package(OpenAL REQUIRED)
+ include_directories(${OPENAL_INCLUDE_DIR})
+ 
++if(D3WASM_CLIENT)
++	# Emscripten's SDL2 port installs headers below the same sysroot include
++	# directory as OpenAL, but dhewm3's legacy finder does not search there.
++	get_filename_component(D3WASM_SYSROOT_INCLUDE "${OPENAL_INCLUDE_DIR}" DIRECTORY)
++	set(SDL2_INCLUDE_DIR "${D3WASM_SYSROOT_INCLUDE}/SDL2" CACHE PATH "Emscripten SDL2 headers" FORCE)
++endif()
++
+ if (SDL3)
+ 	if(SDL2)
+ 		message(WARNING "You enabled both SDL2 and SDL3. Only one can be used at a time, disabling SDL2")
+@@ -368,7 +426,7 @@ if(D3_COMPILER_IS_GCC_OR_CLANG)
+ 
+ 	if(NOT CMAKE_CROSSCOMPILING AND ONATIVE)
+ 		add_compile_options(-march=native)
+-	elseif(NOT APPLE AND cpu STREQUAL "x86")
++	elseif(NOT D3WASM_CLIENT AND NOT APPLE AND cpu STREQUAL "x86")
+ 		add_compile_options(-march=pentium3)
+ 	endif()
+ 
+@@ -1277,9 +1335,11 @@ else()
+ 		sys/linux/main.cpp
+ 	)
+ 
+-	set(src_sys_core
+-		sys/glimp.cpp
+-	)
++	if(D3WASM_CLIENT)
++		set(src_sys_core sys/glimp_emscripten.cpp)
++	else()
++		set(src_sys_core sys/glimp.cpp)
++	endif()
+ endif()
+ 
+ include_directories(${CMAKE_BINARY_DIR})
+@@ -1336,7 +1396,11 @@ if(CORE)
+ 	target_include_directories(${DHEWM3BINARY} PRIVATE "${CMAKE_SOURCE_DIR}/libs/imgui")
+ 
+ if(HARDLINK_GAME)
+-	set_target_properties(${DHEWM3BINARY} PROPERTIES COMPILE_DEFINITIONS "${TOOLS_DEFINES}")
++	if(D3XP)
++		set_target_properties(${DHEWM3BINARY} PROPERTIES COMPILE_DEFINITIONS "${TOOLS_DEFINES};_D3XP;CTF")
++	else()
++		set_target_properties(${DHEWM3BINARY} PROPERTIES COMPILE_DEFINITIONS "${TOOLS_DEFINES}")
++	endif()
+ 	target_include_directories(${DHEWM3BINARY} PRIVATE ${game_includes})
+ else()
+ 	set_target_properties(${DHEWM3BINARY} PROPERTIES COMPILE_DEFINITIONS "__DOOM_DLL__;${TOOLS_DEFINES}")
+diff --git a/neo/d3xp/Game_local.cpp b/neo/d3xp/Game_local.cpp
+index f9362f9..03772c2 100644
+--- a/neo/d3xp/Game_local.cpp
++++ b/neo/d3xp/Game_local.cpp
+@@ -51,6 +51,10 @@ If you have questions concerning this license or the applicable additional terms
+ 
+ #include "Game_local.h"
+ 
++#ifndef GAME_DLL
++#include "tools/compilers/aas/AASFileManager.h"
++#endif
++
+ const int NUM_RENDER_PORTAL_BITS	= idMath::BitsForInteger( PS_BLOCK_ALL );
+ 
+ const float DEFAULT_GRAVITY			= 1066.0f;
+diff --git a/neo/framework/Common.cpp b/neo/framework/Common.cpp
+index dbf6c54..b374d0e 100644
+--- a/neo/framework/Common.cpp
++++ b/neo/framework/Common.cpp
+@@ -2560,6 +2560,7 @@ void idCommonLocal::Frame( void ) {
+ 		if ( com_editors == 0 )
+ #endif
+ 		{
++#ifndef D3WASM_CLIENT
+ 			if ( com_timescale.GetFloat() == 1.0f && GLimp_GetSwapInterval() != 0
+ 				&& fabsf(60.0f - GLimp_GetDisplayRefresh()) < 1.0f ) {
+ 				// if we're using vsync and the display is running at about 60Hz, start next tic
+@@ -2573,6 +2574,7 @@ void idCommonLocal::Frame( void ) {
+ 				Com_WaitForNextTicStart();
+ 			}
+ 			// else the com_ticNumber has already been updated and it's past time to start the next frame
++#endif
+ 		}
+ 
+ 		D3P_FRAMEMARK // tell profiler (tracy) that this is the end of a frame
+@@ -3018,6 +3020,15 @@ void idCommonLocal::Init( int argc, char **argv ) {
+ #endif
+ #endif
+ 
++#ifdef D3WASM_CLIENT
++	printf( "[doom3-wasm] initializing SDL timer services\n" );
++	fflush( stdout );
++	if ( SDL_Init( SDL_INIT_TIMER ) != 0 ) {
++		Sys_Error( "Error while initializing SDL: %s", SDL_GetError() );
++	}
++	printf( "[doom3-wasm] SDL initialization complete\n" );
++	fflush( stdout );
++#else
+ #if SDL_VERSION_ATLEAST(3, 0, 0)
+ 	if ( ! SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD) )
+ 	{
+@@ -3038,6 +3049,7 @@ void idCommonLocal::Init( int argc, char **argv ) {
+ 			Sys_Error("Error while initializing SDL: %s", SDL_GetError());
+ 		}
+ 	}
++#endif
+ 
+ 	Sys_InitThreads();
+ 
+@@ -3175,8 +3187,14 @@ void idCommonLocal::Init( int argc, char **argv ) {
+ 		Sys_Error( "Error during initialization" );
+ 	}
+ 
++#ifndef D3WASM_CLIENT
+ 	runAsyncThread = true;
+ 	Sys_CreateThread( AsyncThread, this, asyncThread, "AsyncThread" );
++#else
++	// Emscripten is single-threaded at this checkpoint. The browser main-loop
++	// callback invokes Async() before Frame() instead of creating a pthread.
++	runAsyncThread = false;
++#endif
+ }
+ 
+ 
+diff --git a/neo/framework/FileSystem.cpp b/neo/framework/FileSystem.cpp
+index 7edeb4d..f76ee5b 100644
+--- a/neo/framework/FileSystem.cpp
++++ b/neo/framework/FileSystem.cpp
+@@ -3555,6 +3555,10 @@ idFileSystemLocal::StartBackgroundReadThread
+ =================
+ */
+ void idFileSystemLocal::StartBackgroundDownloadThread() {
++#ifdef __EMSCRIPTEN__
++	common->Printf( "browser filesystem: background reads run cooperatively\n" );
++	return;
++#endif
+ 	if ( !backgroundThread.threadHandle ) {
+ 		Sys_CreateThread( BackgroundDownloadThread, &backgroundThread_exit, backgroundThread, "backgroundDownload" );
+ 	} else {
+@@ -3568,6 +3572,20 @@ idFileSystemLocal::BackgroundDownload
+ =================
+ */
+ void idFileSystemLocal::BackgroundDownload( backgroundDownload_t *bgl ) {
++#ifdef __EMSCRIPTEN__
++	// The first browser milestone is single-threaded. File reads complete on
++	// the calling frame; URL downloads stay disabled until a bounded browser
++	// transport exists.
++	if ( bgl->opcode == DLTYPE_FILE ) {
++		bgl->f->Seek( bgl->file.position, FS_SEEK_SET );
++		bgl->f->Read( bgl->file.buffer, bgl->file.length );
++		bgl->completed = true;
++	} else {
++		bgl->url.status = DL_FAILED;
++		bgl->completed = true;
++	}
++	return;
++#endif
+ 	if ( bgl->opcode == DLTYPE_FILE ) {
+ 		if ( dynamic_cast<idFile_Permanent *>(bgl->f) ) {
+ 			// add the bgl to the background download list
+diff --git a/neo/framework/Session_local.h b/neo/framework/Session_local.h
+index c16e75e..a2b6aa4 100644
+--- a/neo/framework/Session_local.h
++++ b/neo/framework/Session_local.h
+@@ -114,6 +114,10 @@ public:
+ 	virtual void		Frame();
+ 
+ 	virtual bool		IsMultiplayer();
++#ifdef D3WASM_CLIENT
++	bool				IsGUIActive() const { return guiActive != NULL; }
++	bool				IsMapSpawned() const { return mapSpawned; }
++#endif
+ 
+ 	virtual bool		ProcessEvent( const sysEvent_t *event );
+ 
+diff --git a/neo/renderer/RenderSystem_init.cpp b/neo/renderer/RenderSystem_init.cpp
+index 7914093..e8c853d 100644
+--- a/neo/renderer/RenderSystem_init.cpp
++++ b/neo/renderer/RenderSystem_init.cpp
+@@ -258,6 +258,16 @@ idCVar r_glDebugContext( "r_glDebugContext", "0", CVAR_RENDERER | CVAR_BOOL, "En
+ #define QGLPROC(name, rettype, args) rettype (APIENTRYP q##name) args;
+ #include "renderer/qgl_proc.h"
+ 
++#ifdef __EMSCRIPTEN__
++// WebGL deliberately omits a number of desktop compatibility entry points
++// which Doom 3 resolves eagerly but never uses in its ARB2 render path. Keep
++// typed fallbacks so the capability scan can complete without making indirect
++// calls through a mismatched generic function signature.
++#define QGLPROC(name, rettype, args) \
++	static rettype APIENTRY D3WASM_Missing_##name args { return (rettype)0; }
++#include "renderer/qgl_proc.h"
++#endif
++
+ void ( APIENTRY * qglMultiTexCoord2fARB )( GLenum texture, GLfloat s, GLfloat t );
+ void ( APIENTRY * qglMultiTexCoord2fvARB )( GLenum texture, GLfloat *st );
+ void ( APIENTRY * qglActiveTextureARB )( GLenum texture );
+@@ -546,6 +556,14 @@ static void R_CheckPortableExtensions( void ) {
+ 		}
+ 	}
+ 
++	// Emscripten's legacy GL layer implements the fixed-function combine and
++	// DOT3 operations needed by Doom 3, but WebGL does not advertise their old
++	// desktop extension names. Treat the linked emulation as the capability.
++#ifdef __EMSCRIPTEN__
++	glConfig.textureEnvCombineAvailable = true;
++	glConfig.envDot3Available = true;
++#endif
++
+ 	// check for minimum set
+ 	if ( !glConfig.multitextureAvailable || !glConfig.textureEnvCombineAvailable || !glConfig.cubeMapAvailable
+ 		|| !glConfig.envDot3Available ) {
+@@ -819,14 +837,22 @@ void R_InitOpenGL( void ) {
+ 		r_multiSamples.SetInteger( 0 );
+ 	}
+ 
+-// load qgl function pointers
+ #define QGLPROC(name, rettype, args) \
+ 	q##name = (rettype(APIENTRYP)args)GLimp_ExtensionPointer(#name); \
+-	if (!q##name) \
+-		common->FatalError("Unable to initialize OpenGL (%s)", #name);
++	if (!q##name) { \
++		D3WASM_ASSIGN_MISSING_GL(name) \
++	}
++#ifndef __EMSCRIPTEN__
++#define D3WASM_ASSIGN_MISSING_GL(name) common->FatalError("Unable to initialize OpenGL (%s)", #name);
++#else
++#define D3WASM_ASSIGN_MISSING_GL(name) q##name = &D3WASM_Missing_##name;
++#endif
+ 
+ #include "renderer/qgl_proc.h"
+ 
++#undef D3WASM_ASSIGN_MISSING_GL
++#undef QGLPROC
++
+ 	// input and sound systems need to be tied to the new window
+ 	Sys_InitInput();
+ 	soundSystem->InitHW();
+diff --git a/neo/sound/snd_efxfile.cpp b/neo/sound/snd_efxfile.cpp
+index 014f101..699198a 100644
+--- a/neo/sound/snd_efxfile.cpp
++++ b/neo/sound/snd_efxfile.cpp
+@@ -31,6 +31,42 @@ If you have questions concerning this license or the applicable additional terms
+ 
+ #include "sound/snd_local.h"
+ 
++#ifdef D3WASM_CLIENT
++
++idSoundEffect::idSoundEffect() : effect( 0 ) {
++}
++
++idSoundEffect::~idSoundEffect() {
++}
++
++bool idSoundEffect::alloc() {
++	return false;
++}
++
++idEFXFile::idEFXFile() {
++}
++
++idEFXFile::~idEFXFile() {
++}
++
++void idEFXFile::Clear() {
++	effects.DeleteContents( true );
++}
++
++bool idEFXFile::FindEffect( idStr &, ALuint * ) {
++	return false;
++}
++
++bool idEFXFile::ReadEffect( idLexer &, idSoundEffect * ) {
++	return false;
++}
++
++bool idEFXFile::LoadFile( const char *, bool ) {
++	return false;
++}
++
++#else
++
+ #define mB_to_gain(millibels, property) \
+ 	_mB_to_gain(millibels,AL_EAXREVERB_MIN_ ## property, AL_EAXREVERB_MAX_ ## property)
+ 
+@@ -303,3 +339,5 @@ bool idEFXFile::LoadFile( const char *filename, bool OSPath ) {
+ 
+ 	return true;
+ }
++
++#endif // D3WASM_CLIENT
+diff --git a/neo/sound/snd_local.h b/neo/sound/snd_local.h
+index 808faaa..525ac77 100644
+--- a/neo/sound/snd_local.h
++++ b/neo/sound/snd_local.h
+@@ -43,9 +43,53 @@ If you have questions concerning this license or the applicable additional terms
+ #include <AL/alc.h>
+ #include <AL/alext.h>
+ 
++#if defined(D3WASM_CLIENT) && !defined(ALC_EXT_EFX)
++// Emscripten's OpenAL emulation intentionally omits the EFX API. Keep the
++// existing sound mixer buildable while the browser client reports EFX as
++// unavailable at runtime.
++#ifndef AL_APIENTRY
++#define AL_APIENTRY
++#endif
++#ifndef ALC_APIENTRY
++#define ALC_APIENTRY
++#endif
++typedef void (AL_APIENTRY *LPALGENEFFECTS)(ALsizei, ALuint *);
++typedef void (AL_APIENTRY *LPALDELETEEFFECTS)(ALsizei, const ALuint *);
++typedef ALboolean (AL_APIENTRY *LPALISEFFECT)(ALuint);
++typedef void (AL_APIENTRY *LPALEFFECTI)(ALuint, ALenum, ALint);
++typedef void (AL_APIENTRY *LPALEFFECTF)(ALuint, ALenum, ALfloat);
++typedef void (AL_APIENTRY *LPALEFFECTFV)(ALuint, ALenum, const ALfloat *);
++typedef void (AL_APIENTRY *LPALGENFILTERS)(ALsizei, ALuint *);
++typedef void (AL_APIENTRY *LPALDELETEFILTERS)(ALsizei, const ALuint *);
++typedef ALboolean (AL_APIENTRY *LPALISFILTER)(ALuint);
++typedef void (AL_APIENTRY *LPALFILTERI)(ALuint, ALenum, ALint);
++typedef void (AL_APIENTRY *LPALFILTERF)(ALuint, ALenum, ALfloat);
++typedef void (AL_APIENTRY *LPALGENAUXILIARYEFFECTSLOTS)(ALsizei, ALuint *);
++typedef void (AL_APIENTRY *LPALDELETEAUXILIARYEFFECTSLOTS)(ALsizei, const ALuint *);
++typedef ALboolean (AL_APIENTRY *LPALISAUXILIARYEFFECTSLOT)(ALuint);
++typedef void (AL_APIENTRY *LPALAUXILIARYEFFECTSLOTI)(ALuint, ALenum, ALint);
++typedef void (AL_APIENTRY *LPALAUXILIARYEFFECTSLOTF)(ALuint, ALenum, ALfloat);
++
++#define AL_DIRECT_FILTER             0x20005
++#define AL_AUXILIARY_SEND_FILTER     0x20006
++#define AL_EFFECTSLOT_EFFECT         0x0001
++#define AL_EFFECTSLOT_GAIN           0x0002
++#define AL_EFFECTSLOT_NULL           0x0000
++#define AL_LOWPASS_GAIN              0x0001
++#define AL_LOWPASS_GAINHF            0x0002
++#define AL_FILTER_TYPE               0x8001
++#define AL_FILTER_NULL               0x0000
++#define AL_FILTER_LOWPASS            0x0001
++#define ALC_CONNECTED                0x0313
++#endif
++
++#ifdef D3WASM_CLIENT
++typedef ALCboolean (ALC_APIENTRY *LPALCRESETDEVICESOFT)(ALCdevice *, const ALCint *);
++#endif
++
+ // DG: make this code build with older OpenAL headers that don't know about ALC_SOFT_HRTF
+ //     which provides LPALCRESETDEVICESOFT for idSoundSystemLocal::alcResetDeviceSOFT()
+-#ifndef ALC_SOFT_HRTF
++#if !defined(ALC_SOFT_HRTF) && !defined(D3WASM_CLIENT)
+   typedef ALCboolean (ALC_APIENTRY*LPALCRESETDEVICESOFT)(ALCdevice *device, const ALCint *attribs);
+ #endif
+ 
+diff --git a/neo/sys/glimp_emscripten.cpp b/neo/sys/glimp_emscripten.cpp
+new file mode 100644
+index 0000000..c82aa1b
+--- /dev/null
++++ b/neo/sys/glimp_emscripten.cpp
+@@ -0,0 +1,163 @@
++/*
++===========================================================================
++
++Downstream Emscripten GLimp bridge for a worker-owned OffscreenCanvas.
++
++===========================================================================
++*/
++
++#include "renderer/tr_local.h"
++
++#include <emscripten.h>
++#include <emscripten/html5.h>
++#include <emscripten/html5_webgl.h>
++
++static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE webContext = 0;
++static glimpParms_t currentParms = {};
++static int currentSwapInterval = 1;
++
++// The browser shell transfers its canvas to this dedicated engine worker.  The
++// selector-based HTML5 helpers fall back to document.querySelector() in a
++// non-pthread worker, where document intentionally does not exist.  Operate on
++// the transferred OffscreenCanvas directly instead.
++EM_JS( EMSCRIPTEN_WEBGL_CONTEXT_HANDLE, D3WASM_CreateWorkerWebGLContext,
++	( int alpha, int antialias ), {
++	const canvas = Module['canvas'];
++	if ( !canvas || typeof canvas.getContext !== 'function' ) {
++		return 0;
++	}
++	return GL.createContext( canvas, {
++		alpha: !!alpha,
++		depth: true,
++		stencil: true,
++		antialias: !!antialias,
++		premultipliedAlpha: true,
++		preserveDrawingBuffer: false,
++		powerPreference: 'high-performance',
++		failIfMajorPerformanceCaveat: false,
++		majorVersion: 2,
++		minorVersion: 0,
++		enableExtensionsByDefault: true,
++		explicitSwapControl: true,
++		proxyContextToMainThread: 0,
++		renderViaOffscreenBackBuffer: false
++	});
++} );
++
++EM_JS( int, D3WASM_ResizeWorkerCanvas, ( int width, int height ), {
++	const canvas = Module['canvas'];
++	if ( !canvas ) {
++		return 0;
++	}
++	canvas.width = width;
++	canvas.height = height;
++	return 1;
++} );
++
++bool GLimp_Init( glimpParms_t parms ) {
++	common->Printf( "[doom3-wasm] creating worker WebGL 2 context\n" );
++
++	webContext = D3WASM_CreateWorkerWebGLContext( 1, parms.multiSamples > 0 ? 1 : 0 );
++	if ( webContext <= 0 ) {
++		common->Warning( "emscripten_webgl_create_context failed: %ld\n", static_cast<long>( webContext ) );
++		return false;
++	}
++	if ( emscripten_webgl_make_context_current( webContext ) != EMSCRIPTEN_RESULT_SUCCESS ) {
++		common->Warning( "Could not make worker WebGL context current\n" );
++		emscripten_webgl_destroy_context( webContext );
++		webContext = 0;
++		return false;
++	}
++
++	currentParms = parms;
++	glConfig.vidWidth = parms.width;
++	glConfig.vidHeight = parms.height;
++	glConfig.winWidth = parms.width;
++	glConfig.winHeight = parms.height;
++	glConfig.isFullscreen = false;
++	D3WASM_ResizeWorkerCanvas( parms.width, parms.height );
++	common->Printf( "[doom3-wasm] worker WebGL 2 context is current at %d x %d\n", parms.width, parms.height );
++	return true;
++}
++
++bool GLimp_SetScreenParms( glimpParms_t parms ) {
++	currentParms = parms;
++	glConfig.vidWidth = parms.width;
++	glConfig.vidHeight = parms.height;
++	glConfig.winWidth = parms.width;
++	glConfig.winHeight = parms.height;
++	glConfig.isFullscreen = false;
++	return D3WASM_ResizeWorkerCanvas( parms.width, parms.height ) != 0;
++}
++
++float GLimp_GetDisplayRefresh() {
++	return 60.0f;
++}
++
++glimpParms_t GLimp_GetCurState() {
++	return currentParms;
++}
++
++void GLimp_Shutdown() {
++	if ( webContext ) {
++		emscripten_webgl_destroy_context( webContext );
++		webContext = 0;
++	}
++}
++
++void GLimp_SwapBuffers() {
++	emscripten_webgl_commit_frame();
++}
++
++void GLimp_SetGamma( unsigned short[256], unsigned short[256], unsigned short[256] ) {
++}
++
++void GLimp_ResetGamma() {
++}
++
++void GLimp_ActivateContext() {
++	if ( webContext ) {
++		emscripten_webgl_make_context_current( webContext );
++	}
++}
++
++void GLimp_DeactivateContext() {
++	emscripten_webgl_make_context_current( 0 );
++}
++
++GLExtension_t GLimp_ExtensionPointer( const char *name ) {
++	return reinterpret_cast<GLExtension_t>( emscripten_webgl_get_proc_address( name ) );
++}
++
++void GLimp_GrabInput( int ) {
++}
++
++bool GLimp_SetSwapInterval( int swapInterval ) {
++	currentSwapInterval = swapInterval;
++	return true;
++}
++
++int GLimp_GetSwapInterval() {
++	return currentSwapInterval;
++}
++
++bool GLimp_SetWindowResizable( bool ) {
++	return true;
++}
++
++void GLimp_UpdateWindowSize() {
++	glConfig.vidWidth = currentParms.width;
++	glConfig.vidHeight = currentParms.height;
++	glConfig.winWidth = currentParms.width;
++	glConfig.winHeight = currentParms.height;
++}
++
++extern "C" EMSCRIPTEN_KEEPALIVE int D3WASM_BrowserResize( int width, int height ) {
++	if ( width < 320 || height < 200 ) {
++		return 0;
++	}
++	glimpParms_t parms = currentParms;
++	parms.width = width;
++	parms.height = height;
++	return GLimp_SetScreenParms( parms ) ? 1 : 0;
++}
+diff --git a/neo/sys/linux/main.cpp b/neo/sys/linux/main.cpp
+index 3468d39..bc4048e 100644
+--- a/neo/sys/linux/main.cpp
++++ b/neo/sys/linux/main.cpp
+@@ -42,6 +42,13 @@ If you have questions concerning this license or the applicable additional terms
+ 
+ #include <locale.h>
+ 
++#ifdef D3WASM_CLIENT
++#include <emscripten/emscripten.h>
++#include "framework/Session_local.h"
++#include "sys/sys_sdl.h"
++#include "ui/UserInterface.h"
++#endif
++
+ 
+ 
+ #undef snprintf // no, I don't want to use idStr::snPrintf() here.
+@@ -407,9 +414,102 @@ void idSysLocal::OpenURL( const char *url, bool quit ) {
+ main
+ ===============
+ */
++#ifdef D3WASM_CLIENT
++static int d3wasmLastBrowserState = -1;
++
++static int D3WASM_CurrentBrowserState( void ) {
++	if ( !sessLocal.IsMapSpawned() ) {
++		return 0;
++	}
++	return sessLocal.IsGUIActive() ? 2 : 1;
++}
++
++static void D3WASM_ReportBrowserState( void ) {
++	const int state = D3WASM_CurrentBrowserState();
++	if ( state == d3wasmLastBrowserState ) {
++		return;
++	}
++	d3wasmLastBrowserState = state;
++	EM_ASM( {
++		postMessage( { type: 'engine-state', state: $0 === 1 ? 'gameplay' : ($0 === 2 ? 'paused' : 'menu') } );
++	}, state );
++}
++
++extern "C" EMSCRIPTEN_KEEPALIVE void D3WASM_BrowserOpenMenu( void ) {
++	if ( sessLocal.IsMapSpawned() ) {
++		sessLocal.StartMenu();
++	}
++}
++
++extern "C" EMSCRIPTEN_KEEPALIVE void D3WASM_BrowserCapture( int captured ) {
++	Sys_GrabMouseCursor( captured != 0 );
++}
++
++extern "C" EMSCRIPTEN_KEEPALIVE void D3WASM_BrowserPointer( int x, int y, int relative ) {
++	if ( !relative ) {
++		idUserInterface *activeGui = sessLocal.GetActiveMenu();
++		if ( activeGui != NULL ) {
++			activeGui->SetCursor( x, y );
++			return;
++		}
++	}
++	SDL_Event event = {};
++	event.type = SDL_MOUSEMOTION;
++	event.motion.x = relative ? 0 : x;
++	event.motion.y = relative ? 0 : y;
++	event.motion.xrel = relative ? x : 0;
++	event.motion.yrel = relative ? y : 0;
++	SDL_PushEvent( &event );
++}
++
++extern "C" EMSCRIPTEN_KEEPALIVE void D3WASM_BrowserPointerButton( int browserButton, int down ) {
++	SDL_Event event = {};
++	event.type = down ? SDL_MOUSEBUTTONDOWN : SDL_MOUSEBUTTONUP;
++	event.button.button = browserButton == 2 ? SDL_BUTTON_RIGHT : browserButton == 1 ? SDL_BUTTON_MIDDLE : SDL_BUTTON_LEFT;
++	event.button.state = down ? SDL_PRESSED : SDL_RELEASED;
++	SDL_PushEvent( &event );
++}
++
++extern "C" EMSCRIPTEN_KEEPALIVE void D3WASM_BrowserKey( int scan, int key, int down, int repeat ) {
++	SDL_Event event = {};
++	event.type = down ? SDL_KEYDOWN : SDL_KEYUP;
++	event.key.state = down ? SDL_PRESSED : SDL_RELEASED;
++	event.key.repeat = repeat ? 1 : 0;
++	event.key.keysym.scancode = static_cast<SDL_Scancode>( scan );
++	event.key.keysym.sym = key ? static_cast<SDL_Keycode>( key ) : SDL_GetKeyFromScancode( event.key.keysym.scancode );
++	SDL_PushEvent( &event );
++}
++
++extern "C" EMSCRIPTEN_KEEPALIVE void D3WASM_BrowserText( int codepoint ) {
++	if ( codepoint <= 0 || codepoint > 0x7f ) {
++		return;
++	}
++	SDL_Event event = {};
++	event.type = SDL_TEXTINPUT;
++	event.text.text[0] = static_cast<char>( codepoint );
++	event.text.text[1] = '\0';
++	SDL_PushEvent( &event );
++}
++
++static void D3WASM_Frame( void ) {
++	// The native async thread is intentionally folded into the browser frame.
++	// This is enough for the single-thread checkpoint and keeps the browser event
++	// loop in control; audio cadence will need its own timer before playability.
++	common->Async();
++	common->Frame();
++	D3WASM_ReportBrowserState();
++}
++#endif
++
+ int main(int argc, char **argv) {
+-	// Prevent running Doom 3 as root
+-	// Borrowed from Yamagi Quake II
++#ifdef D3WASM_CLIENT
++	printf( "[doom3-wasm] native main entered\n" );
++	fflush( stdout );
++#endif
++	// Prevent running Doom 3 as root. Emscripten reports a synthetic uid in a
++	// browser sandbox, so the native filesystem safety check does not apply.
++	// Borrowed from Yamagi Quake II.
++#ifndef D3WASM_CLIENT
+ 	if (getuid() == 0) {
+ 		printf("Doom 3 shouldn't be run as root! Backing out to save your ass. If\n");
+ 		printf("you really know what you're doing, edit neo/sys/linux/main.cpp and remove\n");
+@@ -417,6 +517,7 @@ int main(int argc, char **argv) {
+ 
+ 		return 1;
+ 	}
++#endif
+ 	// fallback path to the binary for systems without /proc
+ 	// while not 100% reliable, its good enough
+ 	if (argc > 0) {
+@@ -427,11 +528,17 @@ int main(int argc, char **argv) {
+ 	}
+ 
+ 	SetExecutablePath(path_exe);
++#ifdef D3WASM_CLIENT
++	printf( "[doom3-wasm] executable path initialized\n" ); fflush( stdout );
++#endif
+ 	if (path_exe[0] == '\0') {
+ 		memcpy(path_exe, path_argv, sizeof(path_exe));
+ 	}
+ 
+ 	SetSavePath();
++#ifdef D3WASM_CLIENT
++	printf( "[doom3-wasm] save path initialized\n" ); fflush( stdout );
++#endif
+ 
+ 	// some ladspa-plugins (that may be indirectly loaded by doom3 if they're
+ 	// used by alsa) call setlocale(LC_ALL, ""); This sets LC_ALL to $LANG or
+@@ -440,7 +547,13 @@ int main(int argc, char **argv) {
+ 	// so set $LC_ALL to "C".
+ 	setenv("LC_ALL", "C", 1);
+ 
++#ifdef D3WASM_CLIENT
++	printf( "[doom3-wasm] initializing platform signal seam\n" ); fflush( stdout );
++#endif
+ 	Posix_InitSignalHandlers();
++#ifdef D3WASM_CLIENT
++	printf( "[doom3-wasm] entering common initialization\n" ); fflush( stdout );
++#endif
+ 
+ 	if ( argc > 1 ) {
+ 		common->Init( argc-1, &argv[1] );
+@@ -448,8 +561,13 @@ int main(int argc, char **argv) {
+ 		common->Init( 0, NULL );
+ 	}
+ 
++#ifdef D3WASM_CLIENT
++	common->Printf( "[doom3-wasm] common initialization complete; scheduling cooperative frames\n" );
++	emscripten_set_main_loop( D3WASM_Frame, 0, true );
++#else
+ 	while (1) {
+ 		common->Frame();
+ 	}
++#endif
+ 	return 0;
+ }
+diff --git a/neo/sys/posix/posix_net.cpp b/neo/sys/posix/posix_net.cpp
+index 746a945..42b7415 100644
+--- a/neo/sys/posix/posix_net.cpp
++++ b/neo/sys/posix/posix_net.cpp
+@@ -277,6 +277,17 @@ void Sys_InitNetworking(void)
+ 
+ 	num_interfaces = 0;
+ 
++#ifdef __EMSCRIPTEN__
++	// Browsers do not expose host interface enumeration. Keep the engine's
++	// loopback assumptions intact; remote transport will be supplied by the
++	// later WebSocket bridge rather than native BSD interface discovery.
++	netint[0].ip = 0x7f000001u;
++	netint[0].mask = 0xff000000u;
++	num_interfaces = 1;
++	common->Printf( "browser networking: loopback interface only\n" );
++	return;
++#endif
++
+ 	if( getifaddrs( &ifap ) < 0 ) {
+ 		common->FatalError( "InitNetworking: SIOCGIFCONF error - %s\n", strerror( errno ) );
+ 		return;
+diff --git a/neo/sys/threads.cpp b/neo/sys/threads.cpp
+index 19a1a3e..3b975c9 100644
+--- a/neo/sys/threads.cpp
++++ b/neo/sys/threads.cpp
+@@ -97,6 +97,22 @@ void Sys_InitThreads() {
+ 	mainThreadID = SDL_GetCurrentThreadID();
+ 	mainThreadIDset = true;
+ 
++#ifdef D3WASM_CLIENT
++	// The browser build has no pthread pool. Keep all engine work on the
++	// cooperative browser loop instead of asking SDL for condition variables,
++	// which are unavailable in Emscripten's non-pthread runtime.
++	for (int i = 0; i < MAX_TRIGGER_EVENTS; i++) {
++		signaled[i] = false;
++		waiting[i] = false;
++	}
++	for (int i = 0; i < MAX_THREADS; i++) {
++		thread[i] = NULL;
++	}
++	thread_count = 0;
++	Sys_Printf("browser threading: cooperative single-thread primitives\n");
++	return;
++#endif
++
+ 	// critical sections
+ 	for (int i = 0; i < MAX_CRITICAL_SECTIONS; i++) {
+ 		mutex[i] = SDL_CreateMutex();
+@@ -133,6 +149,10 @@ Sys_ShutdownThreads
+ ==================
+ */
+ void Sys_ShutdownThreads() {
++#ifdef D3WASM_CLIENT
++	thread_count = 0;
++	return;
++#endif
+ 	// threads
+ 	for (int i = 0; i < MAX_THREADS; i++) {
+ 		if (!thread[i])
+@@ -170,6 +190,10 @@ Sys_EnterCriticalSection
+ void Sys_EnterCriticalSection(int index) {
+ 	assert(index >= 0 && index < MAX_CRITICAL_SECTIONS);
+ 
++#ifdef D3WASM_CLIENT
++	return;
++#endif
++
+ #if SDL_VERSION_ATLEAST(3, 0, 0)
+ 	SDL_LockMutex(mutex[index]); // in SDL3, this returns void and can't fail
+ #else // SDL2 and SDL1.2
+@@ -186,6 +210,10 @@ Sys_LeaveCriticalSection
+ void Sys_LeaveCriticalSection(int index) {
+ 	assert(index >= 0 && index < MAX_CRITICAL_SECTIONS);
+ 
++#ifdef D3WASM_CLIENT
++	return;
++#endif
++
+ #if SDL_VERSION_ATLEAST(3, 0, 0)
+ 	SDL_UnlockMutex(mutex[index]); // in SDL3, this returns void and can't fail
+ #else // SDL2 and SDL1.2
+@@ -215,6 +243,13 @@ Sys_WaitForEvent
+ void Sys_WaitForEvent(int index) {
+ 	assert(index >= 0 && index < MAX_TRIGGER_EVENTS);
+ 
++#ifdef D3WASM_CLIENT
++	// A browser frame must never block. Background I/O is synchronous at the
++	// D3WASM seam, so consume a pending signal and return cooperatively.
++	signaled[index] = false;
++	return;
++#endif
++
+ 	Sys_EnterCriticalSection(CRITICAL_SECTION_SYS);
+ 
+ 	assert(!waiting[index]);	// WaitForEvent from multiple threads? that wouldn't be good
+@@ -243,6 +278,11 @@ Sys_TriggerEvent
+ void Sys_TriggerEvent(int index) {
+ 	assert(index >= 0 && index < MAX_TRIGGER_EVENTS);
+ 
++#ifdef D3WASM_CLIENT
++	signaled[index] = true;
++	return;
++#endif
++
+ 	Sys_EnterCriticalSection(CRITICAL_SECTION_SYS);
+ 
+ 	if (waiting[index]) {
+@@ -266,6 +306,13 @@ Sys_CreateThread
+ ==================
+ */
+ void Sys_CreateThread(xthread_t function, void *parms, xthreadInfo& info, const char *name) {
++#ifdef D3WASM_CLIENT
++	(void)function;
++	(void)parms;
++	memset(&info, 0, sizeof(info));
++	Sys_Printf("WARNING: browser build ignored thread request for '%s'\n", name);
++	return;
++#endif
+ 	Sys_EnterCriticalSection();
+ 
+ #if SDL_VERSION_ATLEAST(2, 0, 0)
+@@ -298,6 +345,10 @@ Sys_DestroyThread
+ ==================
+ */
+ void Sys_DestroyThread(xthreadInfo& info) {
++#ifdef D3WASM_CLIENT
++	memset(&info, 0, sizeof(info));
++	return;
++#endif
+ 	assert(info.threadHandle);
+ 
+ 	SDL_WaitThread(info.threadHandle, NULL);
+@@ -333,6 +384,12 @@ find the name of the calling thread
+ ==================
+ */
+ const char *Sys_GetThreadName(int *index) {
++#ifdef D3WASM_CLIENT
++	if (index) {
++		*index = -1;
++	}
++	return "main";
++#endif
+ 	const char *name;
+ 
+ 	Sys_EnterCriticalSection();
+diff --git a/scripts/build-docker.sh b/scripts/build-docker.sh
+new file mode 100755
+index 0000000..64356a8
+--- /dev/null
++++ b/scripts/build-docker.sh
+@@ -0,0 +1,60 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++image_repo="${IMAGE_REPO:-theodorecharles/doom3-wasm}"
++image_tag="${IMAGE_TAG:-dev}"
++framework_dir="${D3WASM_FRAMEWORK_DIR:-${repo_root}/../wasm-game-framework}"
++
++for artifact in \
++  build/web/wasm-game.json \
++  build/web/wasm-game-data.json \
++  build/web/wasm-game-framework.json \
++  build/web/game-adapter.js \
++  build/web/doom3.ico \
++  build/web/doom3-pwa.svg \
++  build/web/roe.png \
++  build/web/d3-worker.js \
++  build/web/dhewm3-base.js \
++  build/web/dhewm3-base.wasm \
++  build/web/dhewm3-roe.js \
++  build/web/dhewm3-roe.wasm; do
++  test -s "$repo_root/$artifact" || {
++    echo "Missing $artifact; run scripts/build-web.sh and the native/server builds first." >&2
++    exit 1
++  }
++done
++
++if find "$repo_root/build/web" -type f \( -iname '*.pk4' -o -iname '*.pak' \) -print -quit | grep -q .; then
++  echo "Refusing to build: retail game data found under build/web." >&2
++  exit 1
++fi
++
++unexpected_file="$(find "$repo_root/build/web" -type f ! \( \
++  -path "$repo_root/build/web/wasm-game.json" -o \
++  -path "$repo_root/build/web/wasm-game-data.json" -o \
++  -path "$repo_root/build/web/wasm-game-framework.json" -o \
++  -path "$repo_root/build/web/game-adapter.js" -o \
++  -path "$repo_root/build/web/doom3.ico" -o \
++  -path "$repo_root/build/web/doom3-pwa.svg" -o \
++  -path "$repo_root/build/web/roe.png" -o \
++  -path "$repo_root/build/web/d3-worker.js" -o \
++  -path "$repo_root/build/web/dhewm3-base.js" -o \
++  -path "$repo_root/build/web/dhewm3-base.wasm" -o \
++  -path "$repo_root/build/web/dhewm3-roe.js" -o \
++  -path "$repo_root/build/web/dhewm3-roe.wasm" \
++\) -print -quit)"
++if [[ -n "$unexpected_file" ]]; then
++  echo "Refusing to build: unexpected file under build/web: $unexpected_file" >&2
++  exit 1
++fi
++
++for variant in suite doom3 doom3-mp roe; do
++  if [[ "$variant" == suite ]]; then
++    image="${image_repo}:${image_tag}"
++  else
++    image="${image_repo}:${variant}-${image_tag}"
++  fi
++  "${framework_dir}/scripts/build-static-image.sh" "$repo_root/build/web" "$image" "$variant"
++done
++echo "Built Doom 3 suite plus doom3, doom3-mp, and roe locked images."
+diff --git a/scripts/build-web.sh b/scripts/build-web.sh
+new file mode 100755
+index 0000000..7974ebf
+--- /dev/null
++++ b/scripts/build-web.sh
+@@ -0,0 +1,80 @@
++#!/usr/bin/env bash
++set -euo pipefail
++
++repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
++emsdk_root="${D3WASM_EMSDK:-${EMSDK_DIR:-}}"
++jobs="${JOBS:-2}"
++base_build="${D3WASM_BASE_BUILD_DIR:-${repo_root}/build/web-base}"
++roe_build="${D3WASM_ROE_BUILD_DIR:-${repo_root}/build/web-roe}"
++web_dir="${D3WASM_WEB_DIR:-${repo_root}/build/web}"
++framework_dir="${D3WASM_FRAMEWORK_DIR:-${repo_root}/../wasm-game-framework}"
++
++framework_version="$(node -p "require('${framework_dir}/package.json').version")"
++if [[ "${framework_version}" != "0.7.0" ]]; then
++	echo "doom3-wasm requires wasm-game-framework 0.7.0, found ${framework_version}." >&2
++	exit 1
++fi
++
++if command -v emcc >/dev/null 2>&1 && command -v emcmake >/dev/null 2>&1; then
++	:
++elif [[ -n "${emsdk_root}" && -f "${emsdk_root}/emsdk_env.sh" ]]; then
++	export EMSDK_QUIET=1
++	source "${emsdk_root}/emsdk_env.sh"
++else
++	echo "Activate Emscripten first, or set D3WASM_EMSDK/EMSDK_DIR to an emsdk checkout." >&2
++	exit 1
++fi
++
++build_game() {
++	local game="$1"
++	local build_dir="$2"
++	emcmake cmake -S "${repo_root}/neo" -B "${build_dir}" -G Ninja \
++		-DCMAKE_BUILD_TYPE=Release \
++		-DD3WASM_CLIENT=ON \
++		-DD3WASM_GAME="${game}" \
++		-DDEDICATED=OFF
++	cmake --build "${build_dir}" --parallel "${jobs}"
++}
++
++build_game base "${base_build}"
++build_game roe "${roe_build}"
++
++cmake -E remove_directory "${web_dir}"
++mkdir -p "${web_dir}"
++install -m 0644 "${base_build}/dhewm3.js" "${web_dir}/dhewm3-base.js"
++install -m 0644 "${base_build}/dhewm3.wasm" "${web_dir}/dhewm3-base.wasm"
++install -m 0644 "${roe_build}/dhewm3.js" "${web_dir}/dhewm3-roe.js"
++install -m 0644 "${roe_build}/dhewm3.wasm" "${web_dir}/dhewm3-roe.wasm"
++install -m 0644 "${repo_root}/web/d3-worker.js" "${web_dir}/d3-worker.js"
++install -m 0644 "${repo_root}/web/game-adapter.js" "${web_dir}/game-adapter.js"
++install -m 0644 "${repo_root}/web/wasm-game.json" "${web_dir}/wasm-game.json"
++install -m 0644 "${repo_root}/web/wasm-game-data.json" "${web_dir}/wasm-game-data.json"
++install -m 0644 "${repo_root}/neo/sys/win32/rc/res/doom.ico" "${web_dir}/doom3.ico"
++install -m 0644 "${repo_root}/dist/linux/share/icons/hicolor/scalable/apps/org.dhewm3.Dhewm3.svg" "${web_dir}/doom3-pwa.svg"
++install -m 0644 "${repo_root}/neo/sys/aros/ROE.png" "${web_dir}/roe.png"
++
++metadata_dir="$(mktemp -d -t doom3-framework.XXXXXX)"
++trap 'rm -rf -- "${metadata_dir}"' EXIT
++"${framework_dir}/scripts/install-browser-package.sh" "${metadata_dir}" copy >/dev/null
++install -m 0644 "${metadata_dir}/wasm-game-framework.json" "${web_dir}/wasm-game-framework.json"
++
++node --check "${web_dir}/dhewm3-base.js"
++node --check "${web_dir}/dhewm3-roe.js"
++node --check "${web_dir}/d3-worker.js"
++node --check "${web_dir}/game-adapter.js"
++for wasm in "${web_dir}/dhewm3-base.wasm" "${web_dir}/dhewm3-roe.wasm"; do
++	test "$(od -An -tx1 -N4 "${wasm}" | tr -d ' \n')" = "0061736d"
++done
++cmp "${repo_root}/web/d3-worker.js" "${web_dir}/d3-worker.js"
++cmp "${repo_root}/web/game-adapter.js" "${web_dir}/game-adapter.js"
++test ! -e "${web_dir}/index.html"
++test ! -e "${web_dir}/app.webmanifest"
++test ! -e "${web_dir}/service-worker.js"
++
++printf 'Built retail-data-free Doom 3 browser clients:\n'
++for artifact in \
++	"${web_dir}/dhewm3-base.js" "${web_dir}/dhewm3-base.wasm" \
++	"${web_dir}/dhewm3-roe.js" "${web_dir}/dhewm3-roe.wasm"; do
++	printf '  %s (%s bytes)\n' "${artifact}" "$(stat -c '%s' "${artifact}")"
++done
++printf 'Owner PK4s are provisioned under /data and cached privately by the framework; they are never copied into build/web.\n'
+diff --git a/web/d3-worker.js b/web/d3-worker.js
+new file mode 100644
+index 0000000..29ba1e5
+--- /dev/null
++++ b/web/d3-worker.js
+@@ -0,0 +1,107 @@
++'use strict';
++
++let persist = null;
++let runtime = null;
++let started = false;
++let failed = false;
++
++function post(type, text, extra) {
++  self.postMessage({ type, text: text == null ? undefined : String(text), ...(extra || {}) });
++}
++
++function call(name, ...arguments_) {
++  const fn = runtime && runtime[`_${name}`];
++  if (typeof fn === 'function') return fn(...arguments_);
++  return 0;
++}
++
++async function launch(message) {
++  if (started) return;
++  started = true;
++  failed = false;
++  const { canvas, entries = [], variant, width, height, playerName, engineArguments = [] } = message;
++  const roe = variant === 'roe';
++  try {
++    post('status', `Loading ${roe ? 'Resurrection of Evil' : 'Doom 3'} engine…`);
++    self.Module = runtime = {
++      canvas,
++      arguments: [
++        '+set', 'fs_basepath', '/owner-data',
++        '+set', 'fs_cdpath', '/owner-data',
++        '+set', 'fs_savepath', '/save',
++        '+set', 'fs_configpath', '/save',
++        '+set', 'r_fullscreen', '0',
++        '+set', 'r_mode', '-1',
++        '+set', 'r_customWidth', String(width || 1280),
++        '+set', 'r_customHeight', String(height || 720),
++        '+set', 'ui_name', String(playerName || 'Marine').slice(0, 32),
++        ...engineArguments,
++        ...(roe ? ['+set', 'fs_game', 'd3xp'] : [])
++      ],
++      locateFile: path => new URL(path.endsWith('.wasm') ? `dhewm3-${roe ? 'roe' : 'base'}.wasm` : path, self.location.href).href,
++      preRun: [() => {
++        FS.mkdir('/owner-data');
++        FS.mount(WORKERFS, { blobs: entries.map(entry => ({ name: entry.path, data: entry.file })) }, '/owner-data');
++        FS.mkdir('/save');
++        FS.mount(IDBFS, {}, '/save');
++        addRunDependency('doom3-save-restore');
++        FS.syncfs(true, error => {
++          if (error) post('log', `Save restore warning: ${error}`);
++          removeRunDependency('doom3-save-restore');
++        });
++      }],
++      print: line => post('log', line),
++      printErr: line => post('log', `ERR: ${line}`),
++      onRuntimeInitialized: () => {
++        post('status', 'Initializing the Doom 3 renderer and menus…');
++        let syncing = false;
++        persist = () => {
++          if (syncing) return;
++          syncing = true;
++          FS.syncfs(false, error => {
++            syncing = false;
++            if (error) post('log', `Save persistence warning: ${error}`);
++          });
++        };
++        setInterval(persist, 10000);
++      },
++      onExit: status => {
++        if (status !== 0) {
++          failed = true;
++          post('error', `Doom 3 exited during initialization (status ${status}).`);
++        }
++      },
++      onAbort: reason => {
++        failed = true;
++        post('error', reason);
++      }
++    };
++    importScripts(`/dhewm3-${roe ? 'roe' : 'base'}.js`);
++  } catch (reason) {
++    started = false;
++    failed = true;
++    post('error', reason instanceof Error ? reason.stack || reason.message : reason);
++  }
++}
++
++self.onerror = event => {
++  failed = true;
++  const location = event.filename ? ` (${event.filename}:${event.lineno || 0}:${event.colno || 0})` : '';
++  post('error', `${event.message || 'Uncaught worker error'}${location}`);
++  return true;
++};
++
++self.onmessage = event => {
++  const message = event.data || {};
++  if (message.type === 'start') { void launch(message); return; }
++  if (message.type === 'persist') { persist?.(); return; }
++  if (!runtime || failed) return;
++  if (message.type === 'resize') call('D3WASM_BrowserResize', message.width | 0, message.height | 0);
++  if (message.type === 'open-menu') call('D3WASM_BrowserOpenMenu');
++  if (message.type === 'capture') call('D3WASM_BrowserCapture', message.captured ? 1 : 0);
++  if (message.type === 'pointer-absolute') call('D3WASM_BrowserPointer', message.x | 0, message.y | 0, 0);
++  if (message.type === 'pointer-relative') call('D3WASM_BrowserPointer', message.dx | 0, message.dy | 0, 1);
++  if (message.type === 'pointer-button') call('D3WASM_BrowserPointerButton', message.button | 0, message.down ? 1 : 0);
++  if (message.type === 'key') call('D3WASM_BrowserKey', message.scan | 0, message.key | 0, message.down ? 1 : 0, message.repeat ? 1 : 0);
++  if (message.type === 'text') call('D3WASM_BrowserText', message.codepoint | 0);
++};
+diff --git a/web/game-adapter.js b/web/game-adapter.js
+new file mode 100644
+index 0000000..be5ef44
+--- /dev/null
++++ b/web/game-adapter.js
+@@ -0,0 +1,168 @@
++(() => {
++  'use strict';
++
++  const profileArguments = Object.freeze({
++    performance: ['+set', 'com_machineSpec', '1', '+set', 'r_multiSamples', '0', '+set', 'r_skipBump', '1'],
++    high: ['+set', 'com_machineSpec', '3', '+set', 'r_multiSamples', '2', '+set', 'r_skipBump', '0'],
++    ultra: ['+set', 'com_machineSpec', '3', '+set', 'image_useCompression', '0', '+set', 'image_usePrecompressedTextures', '1', '+set', 'r_multiSamples', '4']
++  });
++  const scancodes = Object.freeze({
++    Escape: 41, Enter: 40, NumpadEnter: 88, Backspace: 42, Tab: 43, Space: 44,
++    ArrowRight: 79, ArrowLeft: 80, ArrowDown: 81, ArrowUp: 82,
++    ShiftLeft: 225, ShiftRight: 229, ControlLeft: 224, ControlRight: 228,
++    AltLeft: 226, AltRight: 230
++  });
++
++  let worker = null;
++  let ownerData = null;
++  let started = false;
++  let state = 'menu';
++  let lastResize = null;
++
++  function keyScan(code) {
++    if (scancodes[code]) return scancodes[code];
++    if (/^Key[A-Z]$/.test(code)) return code.charCodeAt(3) - 61;
++    if (/^Digit[1-9]$/.test(code)) return 30 + Number(code.slice(5)) - 1;
++    if (code === 'Digit0') return 39;
++    return 0;
++  }
++
++  function manifestVariant(manifest, variant) {
++    const selected = manifest.variants?.[variant];
++    if (!selected) throw new Error(`Doom 3 data policy has no ${variant} variant.`);
++    return {
++      // Shared base PK4 keys intentionally use one cache namespace so changing
++      // between SP, MP, and RoE never downloads identical owner data twice.
++      namespace: selected.namespace || manifest.namespace,
++      version: selected.version || manifest.version,
++      files: selected.files
++    };
++  }
++
++  function createDataSet(ctx, policy) {
++    return ctx.framework.createOwnerDataSet({
++      namespace: policy.namespace,
++      version: policy.version,
++      files: policy.files.map(spec => ({
++        ...spec,
++        mountName: spec.path,
++        validateCached: false
++      }))
++    });
++  }
++
++  function viewport(ctx) {
++    const detail = lastResize || {};
++    return {
++      width: Math.max(640, Number(detail.requestedWidth || ctx.elements.canvas.width || 1280)),
++      height: Math.max(480, Number(detail.requestedHeight || ctx.elements.canvas.height || 720))
++    };
++  }
++
++  function post(message) {
++    if (worker) worker.postMessage(message);
++  }
++
++  function bindInput(ctx) {
++    document.addEventListener('keydown', event => {
++      if (!started || event.ctrlKey || event.metaKey || event.altKey) return;
++      const scan = keyScan(event.code);
++      if (!scan) return;
++      post({ type: 'key', scan, key: event.key.length === 1 ? event.key.charCodeAt(0) : 0, down: true, repeat: event.repeat });
++      if (event.key.length === 1 && !event.repeat) post({ type: 'text', codepoint: event.key.charCodeAt(0) });
++      if (['Escape', 'Enter', 'Tab', 'Backspace', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', ' '].includes(event.key)) event.preventDefault();
++    }, true);
++    document.addEventListener('keyup', event => {
++      if (!started) return;
++      const scan = keyScan(event.code);
++      if (scan) post({ type: 'key', scan, key: event.key.length === 1 ? event.key.charCodeAt(0) : 0, down: false });
++    }, true);
++    ctx.elements.canvas.addEventListener('pointermove', event => {
++      if (document.pointerLockElement === ctx.elements.canvas) {
++        post({ type: 'pointer-relative', dx: event.movementX, dy: event.movementY });
++      }
++    });
++  }
++
++  globalThis.WasmGameAdapter = Object.freeze({
++    async init(ctx) {
++      const manifest = await fetch('/wasm-game-data.json', { cache: 'no-store' }).then(response => {
++        if (!response.ok) throw new Error(`Doom 3 data policy failed with HTTP ${response.status}.`);
++        return response.json();
++      });
++      ownerData = createDataSet(ctx, manifestVariant(manifest, ctx.variant));
++      ctx.elements.canvas.id = 'canvas';
++      ctx.elements.canvas.addEventListener('contextmenu', event => event.preventDefault());
++      bindInput(ctx);
++    },
++
++    async start(ctx) {
++      if (started) return;
++      void ctx.shell.resumeAudio();
++      ctx.setLoading('Restoring registered Doom 3 data…', '', 5);
++      const data = await ctx.dataClient.load(ownerData, {
++        onProgress(detail) {
++          if (detail.phase === 'checking-cache') ctx.setLoading(`Checking ${detail.key}…`);
++          if (detail.phase === 'downloading') {
++            const percent = detail.total ? Math.floor(detail.received * 100 / detail.total) : 0;
++            ctx.setLoading(`Caching ${detail.key} from this container…`, `${percent}%`, Math.min(80, 5 + percent * 0.7));
++          }
++          if (detail.phase === 'restored') ctx.setLoading(`Restored ${detail.key} from this browser…`);
++        }
++      });
++      document.documentElement.dataset.wasmDataSource = data.entries.every(entry => entry.cached) ? 'cache' : 'container';
++      ctx.setLoading('Starting the Doom 3 engine…', '', 90);
++      const canvas = ctx.elements.canvas;
++      const offscreen = canvas.transferControlToOffscreen();
++      const size = viewport(ctx);
++      const preferences = ctx.preferences.values();
++      worker = new Worker('/d3-worker.js');
++      worker.onmessage = event => {
++        const message = event.data || {};
++        if (message.type === 'log') ctx.log(message.text);
++        if (message.type === 'status') ctx.setLoading(message.text);
++        if (message.type === 'engine-state') {
++          state = message.state || 'menu';
++          ctx.showRuntime(state);
++        }
++        if (message.type === 'ready') {
++          state = message.state || 'menu';
++          ctx.setLoading('', '', 100);
++          ctx.showRuntime(state);
++        }
++        if (message.type === 'error') {
++          state = 'crashed';
++          ctx.log(`ERROR: ${message.text}`);
++          ctx.setEngineState('crashed');
++          ctx.setStatus(message.text, true);
++        }
++      };
++      worker.onerror = event => {
++        state = 'crashed';
++        ctx.setEngineState('crashed');
++        ctx.setStatus(`Doom 3 worker failed: ${event.message}`, true);
++      };
++      started = true;
++      worker.postMessage({
++        type: 'start', canvas: offscreen, variant: ctx.variant,
++        entries: data.entries.map(entry => ({ path: entry.policy.path, file: entry.file })),
++        width: size.width, height: size.height,
++        playerName: preferences.playerName,
++        engineArguments: profileArguments[preferences.qualityProfile] || profileArguments.high
++      }, [offscreen]);
++    },
++
++    readEngineState() { return state; },
++    resize(detail) {
++      lastResize = detail;
++      if (started) post({ type: 'resize', width: detail.requestedWidth, height: detail.requestedHeight });
++    },
++    pointerMove(detail) { if (started) post({ type: 'pointer-absolute', x: detail.x, y: detail.y }); },
++    pointerButton(detail) { if (started) post({ type: 'pointer-button', button: detail.button, down: detail.pressed, x: detail.x, y: detail.y }); },
++    inputCaptureChanged(captured) { if (started) post({ type: 'capture', captured }); },
++    captureLost() { if (started) post({ type: 'open-menu' }); },
++    preferencesChanged(values) {
++      if (started) post({ type: 'preferences', playerName: values.playerName, engineArguments: profileArguments[values.qualityProfile] || profileArguments.high });
++    }
++  });
++})();
+diff --git a/web/wasm-game-data.json b/web/wasm-game-data.json
+new file mode 100644
+index 0000000..fd1feee
+--- /dev/null
++++ b/web/wasm-game-data.json
+@@ -0,0 +1,47 @@
++{
++  "namespace": "doom3-suite",
++  "version": "steam-1.3.1-sha256-v1",
++  "variants": {
++    "doom3": {
++      "files": [
++        {"key":"base-pak000","name":"pak000.pk4","path":"base/pak000.pk4","size":353159257,"magic":[80,75,3,4],"sha256":"220513bba8cc51191738b52b4ea320cd3376736e13147e240aa503622aa926ce"},
++        {"key":"base-pak001","name":"pak001.pk4","path":"base/pak001.pk4","size":229649726,"magic":[80,75,3,4],"sha256":"dc85da3d731793f2973ffb7ef31be17057e88dee0b1157531c7f26a7b33c8fc0"},
++        {"key":"base-pak002","name":"pak002.pk4","path":"base/pak002.pk4","size":416937674,"magic":[80,75,3,4],"sha256":"52d50dc300c87c484a0d7bc28c64777cafd7d581a91b5eeb6222991e328b7f1c"},
++        {"key":"base-pak003","name":"pak003.pk4","path":"base/pak003.pk4","size":317590154,"magic":[80,75,3,4],"sha256":"a946bf100ba931edb1d814d78baccc5b8279a52b1351ab00bb049bce993e365a"},
++        {"key":"base-pak004","name":"pak004.pk4","path":"base/pak004.pk4","size":237752384,"magic":[80,75,3,4],"sha256":"eac10316182f06832b7c087dbac4dad98c4e3243e6aecf7d9906ff7ba9514ba3"},
++        {"key":"base-pak005","name":"pak005.pk4","path":"base/pak005.pk4","size":552334,"magic":[80,75,3,4],"sha256":"d50a114eb655cb7f55da38870e1a992a9f4efe5c52910f83eba8fe6dbbe85657"},
++        {"key":"base-pak006","name":"pak006.pk4","path":"base/pak006.pk4","size":218751,"magic":[80,75,3,4],"sha256":"a0d28ebada2697f5a8d4d1f06a705d2335044bab9aee805679a2bd0c3b7d59b1"},
++        {"key":"base-pak007","name":"pak007.pk4","path":"base/pak007.pk4","size":192031,"magic":[80,75,3,4],"sha256":"e5d57ede9def75c7cbb0542ceef6ad56147c9a2162c8517f716410b9092965a0"},
++        {"key":"base-pak008","name":"pak008.pk4","path":"base/pak008.pk4","size":12243,"magic":[80,75,3,4],"sha256":"57be0712bb180943ad51757b48486bc590e9242fd885704771c0a7102953d4b7"}
++      ]
++    },
++    "doom3-mp": {
++      "files": [
++        {"key":"base-pak000","name":"pak000.pk4","path":"base/pak000.pk4","size":353159257,"magic":[80,75,3,4],"sha256":"220513bba8cc51191738b52b4ea320cd3376736e13147e240aa503622aa926ce"},
++        {"key":"base-pak001","name":"pak001.pk4","path":"base/pak001.pk4","size":229649726,"magic":[80,75,3,4],"sha256":"dc85da3d731793f2973ffb7ef31be17057e88dee0b1157531c7f26a7b33c8fc0"},
++        {"key":"base-pak002","name":"pak002.pk4","path":"base/pak002.pk4","size":416937674,"magic":[80,75,3,4],"sha256":"52d50dc300c87c484a0d7bc28c64777cafd7d581a91b5eeb6222991e328b7f1c"},
++        {"key":"base-pak003","name":"pak003.pk4","path":"base/pak003.pk4","size":317590154,"magic":[80,75,3,4],"sha256":"a946bf100ba931edb1d814d78baccc5b8279a52b1351ab00bb049bce993e365a"},
++        {"key":"base-pak004","name":"pak004.pk4","path":"base/pak004.pk4","size":237752384,"magic":[80,75,3,4],"sha256":"eac10316182f06832b7c087dbac4dad98c4e3243e6aecf7d9906ff7ba9514ba3"},
++        {"key":"base-pak005","name":"pak005.pk4","path":"base/pak005.pk4","size":552334,"magic":[80,75,3,4],"sha256":"d50a114eb655cb7f55da38870e1a992a9f4efe5c52910f83eba8fe6dbbe85657"},
++        {"key":"base-pak006","name":"pak006.pk4","path":"base/pak006.pk4","size":218751,"magic":[80,75,3,4],"sha256":"a0d28ebada2697f5a8d4d1f06a705d2335044bab9aee805679a2bd0c3b7d59b1"},
++        {"key":"base-pak007","name":"pak007.pk4","path":"base/pak007.pk4","size":192031,"magic":[80,75,3,4],"sha256":"e5d57ede9def75c7cbb0542ceef6ad56147c9a2162c8517f716410b9092965a0"},
++        {"key":"base-pak008","name":"pak008.pk4","path":"base/pak008.pk4","size":12243,"magic":[80,75,3,4],"sha256":"57be0712bb180943ad51757b48486bc590e9242fd885704771c0a7102953d4b7"}
++      ]
++    },
++    "roe": {
++      "files": [
++        {"key":"base-pak000","name":"pak000.pk4","path":"base/pak000.pk4","size":353159257,"magic":[80,75,3,4],"sha256":"220513bba8cc51191738b52b4ea320cd3376736e13147e240aa503622aa926ce"},
++        {"key":"base-pak001","name":"pak001.pk4","path":"base/pak001.pk4","size":229649726,"magic":[80,75,3,4],"sha256":"dc85da3d731793f2973ffb7ef31be17057e88dee0b1157531c7f26a7b33c8fc0"},
++        {"key":"base-pak002","name":"pak002.pk4","path":"base/pak002.pk4","size":416937674,"magic":[80,75,3,4],"sha256":"52d50dc300c87c484a0d7bc28c64777cafd7d581a91b5eeb6222991e328b7f1c"},
++        {"key":"base-pak003","name":"pak003.pk4","path":"base/pak003.pk4","size":317590154,"magic":[80,75,3,4],"sha256":"a946bf100ba931edb1d814d78baccc5b8279a52b1351ab00bb049bce993e365a"},
++        {"key":"base-pak004","name":"pak004.pk4","path":"base/pak004.pk4","size":237752384,"magic":[80,75,3,4],"sha256":"eac10316182f06832b7c087dbac4dad98c4e3243e6aecf7d9906ff7ba9514ba3"},
++        {"key":"base-pak005","name":"pak005.pk4","path":"base/pak005.pk4","size":552334,"magic":[80,75,3,4],"sha256":"d50a114eb655cb7f55da38870e1a992a9f4efe5c52910f83eba8fe6dbbe85657"},
++        {"key":"base-pak006","name":"pak006.pk4","path":"base/pak006.pk4","size":218751,"magic":[80,75,3,4],"sha256":"a0d28ebada2697f5a8d4d1f06a705d2335044bab9aee805679a2bd0c3b7d59b1"},
++        {"key":"base-pak007","name":"pak007.pk4","path":"base/pak007.pk4","size":192031,"magic":[80,75,3,4],"sha256":"e5d57ede9def75c7cbb0542ceef6ad56147c9a2162c8517f716410b9092965a0"},
++        {"key":"base-pak008","name":"pak008.pk4","path":"base/pak008.pk4","size":12243,"magic":[80,75,3,4],"sha256":"57be0712bb180943ad51757b48486bc590e9242fd885704771c0a7102953d4b7"},
++        {"key":"d3xp-pak000","name":"pak000.pk4","path":"d3xp/pak000.pk4","size":538385153,"magic":[80,75,3,4],"sha256":"b5236ac25be28e1cb6021e54dfff595ac569eaea350c199f2eb5b6ba0df67f08"},
++        {"key":"d3xp-pak001","name":"pak001.pk4","path":"d3xp/pak001.pk4","size":99336,"magic":[80,75,3,4],"sha256":"2ba245254b8ed3440e252f6e2e24af2c6343d7c312f9a9a7e73509abdaf13e49"}
++      ]
++    }
++  }
++}
+diff --git a/web/wasm-game.json b/web/wasm-game.json
+new file mode 100644
+index 0000000..a9d7df9
+--- /dev/null
++++ b/web/wasm-game.json
+@@ -0,0 +1,85 @@
++{
++  "id": "doom3",
++  "kicker": "id Tech 4",
++  "defaultVariant": "doom3",
++  "description": "Run Doom 3 and Resurrection of Evil from your own registered game data.",
++  "displayMode": "dynamic",
++  "nativeManaged": true,
++  "syncBackbuffer": false,
++  "resizeTransition": "immediate",
++  "pointerWidth": 640,
++  "pointerHeight": 480,
++  "pointerFit": "contain",
++  "canvasWidth": 1280,
++  "canvasHeight": 720,
++  "maxDpr": 1,
++  "pointerLock": true,
++  "identity": true,
++  "graphics": true,
++  "advanced": true,
++  "profiles": [
++    { "value": "performance", "label": "Performance" },
++    { "value": "high", "label": "High" },
++    { "value": "ultra", "label": "Ultra" }
++  ],
++  "defaultProfile": "high",
++  "fpsTargets": [30, 60, 120],
++  "defaultFps": 60,
++  "defaultDynamicQuality": false,
++  "defaultPlayerName": "Marine",
++  "fullscreen": true,
++  "defaultFullscreen": false,
++  "icon": "/doom3.ico",
++  "iconPixelated": false,
++  "adapter": "/game-adapter.js",
++  "variants": {
++    "doom3": {
++      "title": "Doom 3",
++      "description": "Play the Doom 3 single-player campaign.",
++      "loadingTitle": "Starting Doom 3…",
++      "icon": "/doom3.ico",
++      "pwa": {
++        "name": "Doom 3",
++        "shortName": "Doom 3",
++        "description": "Doom 3 single-player in the browser, using owner-provided game data.",
++        "themeColor": "#67130c",
++        "backgroundColor": "#000000",
++        "icons": [
++          { "src": "/doom3-pwa.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
++        ]
++      }
++    },
++    "doom3-mp": {
++      "title": "Doom 3 Multiplayer",
++      "description": "Open Doom 3's multiplayer client.",
++      "loadingTitle": "Starting Doom 3 multiplayer…",
++      "icon": "/doom3.ico",
++      "pwa": {
++        "name": "Doom 3 Multiplayer",
++        "shortName": "Doom 3 MP",
++        "description": "Doom 3 multiplayer in the browser, using owner-provided game data.",
++        "themeColor": "#67130c",
++        "backgroundColor": "#000000",
++        "icons": [
++          { "src": "/doom3-pwa.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
++        ]
++      }
++    },
++    "roe": {
++      "title": "Doom 3: Resurrection of Evil",
++      "description": "Play the Resurrection of Evil expansion.",
++      "loadingTitle": "Starting Resurrection of Evil…",
++      "icon": "/roe.png",
++      "pwa": {
++        "name": "Doom 3: Resurrection of Evil",
++        "shortName": "Doom 3: RoE",
++        "description": "Resurrection of Evil in the browser, using owner-provided game data.",
++        "themeColor": "#32100c",
++        "backgroundColor": "#000000",
++        "icons": [
++          { "src": "/roe.png", "sizes": "64x64", "type": "image/png", "purpose": "any" }
++        ]
++      }
++    }
++  }
++}

@@ -1,0 +1,24 @@
+{
+  "framework": {
+    "url": "https://github.com/theodorecharles/wasm-game-framework.git",
+    "commit": "536d919ef6e6cd171aa826812db9f888ffbf04a3",
+    "version": "0.7.0"
+  },
+  "dhewm3": {
+    "url": "https://github.com/dhewm/dhewm3.git",
+    "commit": "455b88e8dff2be822f08eb498f51b383e851fa38",
+    "patch": "patches/dhewm3-browser.patch",
+    "checkpoint": "cc9309051de93e303c384da5e8c285eaf0687c43"
+  },
+  "openq4": {
+    "url": "https://github.com/themuffinator/openQ4.git",
+    "commit": "f3d23f767dbcca5dab4cc1e5a029343ad4d0ddf2",
+    "patch": "patches/openq4-browser.patch",
+    "checkpoint": "77d37eadf5a241db2ae7b2642b5d213bc2ff42d3"
+  },
+  "openq4Game": {
+    "url": "https://github.com/themuffinator/openQ4-game.git",
+    "commit": "0c9c121ff337b1c6df129ecedcfe569e7c50c332"
+  }
+}
+
