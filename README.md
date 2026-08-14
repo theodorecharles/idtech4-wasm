@@ -2,7 +2,7 @@
 
 `idtech4-wasm` is the retail-free engine-family workspace for running Doom 3, Doom 3 multiplayer, Resurrection of Evil, Quake 4, and Quake 4 multiplayer in a browser. It builds the native source ports with Emscripten, presents every title through `wasm-game-framework`, and produces one suite image plus five game-locked images.
 
-No retail game file is committed or copied into an image. The container serves owner-supplied files from its private `/data` volume through the framework's validated data endpoint; the browser verifies them against exact manifests and stores them in IndexedDB for later launches. Direct HTTP access to `/data` is denied.
+No game data is committed or copied into an image. The container serves the required files from its private `/data` volume through the framework's validated data endpoint; the browser verifies them against exact manifests and stores them in IndexedDB for later launches. Direct HTTP access to `/data` is denied.
 
 ## Status
 
@@ -14,7 +14,7 @@ No retail game file is committed or copied into an image. The container serves o
 | Quake 4 single-player | Still in development |
 | Quake 4 multiplayer | Still in development |
 
-Both native engines compile to WebAssembly, their source-derived runtime modules are staged, owner data is validated and restored in the browser, and WebGL 2 context creation succeeds in an `OffscreenCanvas` worker. The remaining renderer boundary is the desktop OpenGL/ARB program path used by both engines; it needs a WebGL 2-compatible implementation before gameplay is expected.
+Both native engines compile to WebAssembly, their source-derived runtime modules are staged, required data is validated and restored in the browser, and WebGL 2 context creation succeeds in an `OffscreenCanvas` worker. The remaining renderer boundary is the desktop OpenGL/ARB program path used by both engines; it needs a WebGL 2-compatible implementation before gameplay is expected.
 
 ## Repository model
 
@@ -30,7 +30,7 @@ The existing `doom3-wasm` and `quake4-wasm` repositories remain independent work
 
 ## Build
 
-Activate an Emscripten SDK that provides `emcc`, `em++`, and `embuilder`. The build fetches the exact framework and native revisions into ignored `.work/` checkouts. Set `WASM_GAME_FRAMEWORK_DIR` only when intentionally validating an already pinned checkout.
+Activate an Emscripten SDK that provides `emcc`, `em++`, and `embuilder`. The build fetches the exact framework and native revisions into ignored `.work/` checkouts and creates a pinned Meson 1.8.3 environment under `.work/build-tools`. Set `WASM_GAME_FRAMEWORK_DIR` only when intentionally validating an already pinned checkout.
 
 Build the family site and all images:
 
@@ -60,7 +60,7 @@ mkdir -p ./data/base ./data/d3xp ./data/q4base
 docker run --rm -p 8088:8088 -v "$PWD/data:/data" local/idtech4-wasm:dev
 ```
 
-Copy files from a legally owned installation into:
+Copy the required files into:
 
 - `/data/base`: Doom 3 `pak000.pk4` through `pak008.pk4`
 - `/data/d3xp`: Resurrection of Evil `pak000.pk4` and `pak001.pk4`

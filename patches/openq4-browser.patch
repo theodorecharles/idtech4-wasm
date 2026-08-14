@@ -57,13 +57,13 @@ index d2e194d0..ea328c9c 100644
 +content/baseoq4/pak0/fonts/*.ttf
 diff --git a/Dockerfile b/Dockerfile
 new file mode 100644
-index 00000000..cce4250d
+index 00000000..0db1145f
 --- /dev/null
 +++ b/Dockerfile
 @@ -0,0 +1,39 @@
 +# syntax=docker/dockerfile:1.7
 +
-+ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.0
++ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.1
 +FROM ${FRAMEWORK_IMAGE}
 +
 +ARG VCS_REF=unknown
@@ -102,10 +102,10 @@ index 00000000..cce4250d
 +  CMD wget -q -O - http://127.0.0.1:8088/ >/dev/null
 diff --git a/RUNBOOK.md b/RUNBOOK.md
 new file mode 100644
-index 00000000..5dbfff16
+index 00000000..a784cdce
 --- /dev/null
 +++ b/RUNBOOK.md
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,116 @@
 +# Quake 4 WebAssembly runbook
 +
 +Status: **Still in development**
@@ -124,8 +124,8 @@ index 00000000..5dbfff16
 +
 +## Canonical browser contract
 +
-+The repository pins `wasm-game-framework` 0.7.0 at public commit
-+`536d919ef6e6cd171aa826812db9f888ffbf04a3`.
++The repository pins `wasm-game-framework` 0.7.1 at public commit
++`9359fb186399d0c608cbcd063f7e6fd03eb7c210`.
 +
 +Downstream owns only:
 +
@@ -155,9 +155,9 @@ index 00000000..5dbfff16
 +Both use the same exact owner PK4 policy and browser cache namespace so changing
 +variants does not duplicate gigabytes of data.
 +
-+## Retail and source-derived data
++## Runtime data
 +
-+The owner mounts registered data at `/data/q4base`. On first use, the framework
++The required data is mounted at `/data/q4base`. On first use, the framework
 +streams the exact manifest files from the container into its private browser
 +cache. Later launches restore unchanged files from IndexedDB. The worker mounts
 +the resulting browser `File` objects read-only through WORKERFS at
@@ -178,24 +178,23 @@ index 00000000..5dbfff16
 +## Build
 +
 +```bash
-+cd /home/ted/Development/wasm/quake4-wasm
-+source /home/ted/emsdk/emsdk_env.sh
-+OPENQ4_GAMELIBS_REPO="$PWD/.tmp/pinned-gamelibs" JOBS=4 \
++cd quake4-wasm
++source "${EMSDK_DIR:?Set EMSDK_DIR}/emsdk_env.sh"
++OPENQ4_GAMELIBS_REPO="${OPENQ4_GAMELIBS_REPO:?Set OPENQ4_GAMELIBS_REPO}" JOBS=4 \
 +  ./scripts/build-web.sh
 +IMAGE_REPO=local/quake4-wasm IMAGE_TAG=dev ./scripts/build-docker.sh
 +```
 +
 +The pinned GameLibs revision is
 +`0c9c121ff337b1c6df129ecedcfe569e7c50c332`. Its compiled SP/MP modules and
-+accompanying SDK EULA follow the recorded owner decision in
-+`docs/REDISTRIBUTION.md`.
++accompanying SDK EULA are described in `docs/REDISTRIBUTION.md`.
 +
 +## Verified browser boundary (2026-08-14)
 +
-+Serialized Chrome tests exercised both SP and MP from the framework 0.7.0 suite
-+image with the exact Steam owner-data set.
++Serialized Chrome tests exercised both SP and MP from the framework 0.7.1 suite
++image with the exact Steam data set.
 +
-+- The browser restored all 32 owner PK4s from its private cache.
++- The browser restored all 32 PK4s from its private cache.
 +- The engine mounted both source-derived OpenQ4 packages above.
 +- The Emscripten main loop remained cooperative in a dedicated worker.
 +- Native splash, unsupported interface enumeration, background pthreads, and
@@ -33504,7 +33503,7 @@ Zzp`r1{A^lXH;1KF?NxJGT3uOF_g}l!Bh3H+
 
 diff --git a/docker/game-adapter.js b/docker/game-adapter.js
 new file mode 100644
-index 00000000..3b966f65
+index 00000000..aa478069
 --- /dev/null
 +++ b/docker/game-adapter.js
 @@ -0,0 +1,148 @@
@@ -33589,7 +33588,7 @@ index 00000000..3b966f65
 +    async start(ctx) {
 +      if (started) return;
 +      void ctx.shell.resumeAudio();
-+      ctx.setLoading('Restoring registered Quake 4 data…', '', 5);
++      ctx.setLoading('Preparing Quake 4…', '', 5);
 +      const data = await ctx.dataClient.load(ownerData, {
 +        onProgress(detail) {
 +          if (detail.phase === 'checking-cache') ctx.setLoading(`Checking ${detail.key}…`);
@@ -33882,7 +33881,7 @@ index 00000000..61236d89
 +}
 diff --git a/docker/wasm-game.json b/docker/wasm-game.json
 new file mode 100644
-index 00000000..6c8c5b41
+index 00000000..d74e4042
 --- /dev/null
 +++ b/docker/wasm-game.json
 @@ -0,0 +1,71 @@
@@ -33890,7 +33889,7 @@ index 00000000..6c8c5b41
 +  "id": "quake4",
 +  "kicker": "id Tech 4",
 +  "defaultVariant": "quake4",
-+  "description": "Run Quake 4 from your own registered game data.",
++  "description": "Quake 4 single-player and multiplayer in the browser.",
 +  "displayMode": "dynamic",
 +  "nativeManaged": true,
 +  "syncBackbuffer": false,
@@ -33931,7 +33930,7 @@ index 00000000..6c8c5b41
 +      "pwa": {
 +        "name": "Quake 4",
 +        "shortName": "Quake 4",
-+        "description": "Quake 4 single-player in the browser, using owner-provided game data.",
++        "description": "Quake 4 single-player in the browser.",
 +        "themeColor": "#5f180d",
 +        "backgroundColor": "#000000",
 +        "icons": [
@@ -33947,7 +33946,7 @@ index 00000000..6c8c5b41
 +      "pwa": {
 +        "name": "Quake 4 Multiplayer",
 +        "shortName": "Quake 4 MP",
-+        "description": "Quake 4 multiplayer in the browser, using owner-provided game data.",
++        "description": "Quake 4 multiplayer in the browser.",
 +        "themeColor": "#5f180d",
 +        "backgroundColor": "#000000",
 +        "icons": [
@@ -34991,10 +34990,10 @@ index 00000000..98fdfad8
 +echo "Built Quake 4 suite plus quake4 and quake4-mp locked images (no retail q4base data)."
 diff --git a/scripts/build-web.sh b/scripts/build-web.sh
 new file mode 100755
-index 00000000..e886c5ab
+index 00000000..5f749b7e
 --- /dev/null
 +++ b/scripts/build-web.sh
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,119 @@
 +#!/usr/bin/env bash
 +set -euo pipefail
 +
@@ -35007,8 +35006,8 @@ index 00000000..e886c5ab
 +framework_dir="${Q4WASM_FRAMEWORK_DIR:-${repo_root}/../wasm-game-framework}"
 +
 +framework_version="$(node -p "require('${framework_dir}/package.json').version")"
-+if [[ "${framework_version}" != "0.7.0" ]]; then
-+	echo "quake4-wasm requires wasm-game-framework 0.7.0, found ${framework_version}." >&2
++if [[ "${framework_version}" != "0.7.1" ]]; then
++	echo "quake4-wasm requires wasm-game-framework 0.7.1, found ${framework_version}." >&2
 +	exit 1
 +fi
 +
@@ -35030,6 +35029,8 @@ index 00000000..e886c5ab
 +	meson_cmd=("${OPENQ4_MESON}")
 +elif command -v meson >/dev/null 2>&1; then
 +	meson_cmd=(meson)
++elif python3 -c 'import mesonbuild.mesonmain' >/dev/null 2>&1; then
++	meson_cmd=(python3 -m mesonbuild.mesonmain)
 +elif [[ -x "${repo_root}/.tmp/q4wasm-tools-wasm/bin/meson" ]]; then
 +	meson_cmd=("${repo_root}/.tmp/q4wasm-tools-wasm/bin/meson")
 +elif [[ -x "${repo_root}/.tmp/q4wasm-tools/bin/meson" ]] && "${repo_root}/.tmp/q4wasm-tools/bin/meson" --version >/dev/null 2>&1; then
@@ -35038,6 +35039,7 @@ index 00000000..e886c5ab
 +	echo "Meson is unavailable. Install Meson or set OPENQ4_MESON to its executable path." >&2
 +	exit 1
 +fi
++"${meson_cmd[@]}" --version >/dev/null
 +
 +export OPENQ4_GAMELIBS_REPO="${gamelibs_root}"
 +
@@ -35055,7 +35057,7 @@ index 00000000..e886c5ab
 +)
 +
 +if [[ -f "${build_dir}/build.ninja" ]]; then
-+	"${meson_cmd[@]}" setup --reconfigure "${build_dir}" "${meson_args[@]}"
++	"${meson_cmd[@]}" setup --reconfigure "${build_dir}" "${repo_root}" "${meson_args[@]}"
 +else
 +	"${meson_cmd[@]}" setup "${build_dir}" "${repo_root}" \
 +		--cross-file "${repo_root}/tools/cross/emscripten.ini" "${meson_args[@]}"

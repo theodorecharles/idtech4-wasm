@@ -92,7 +92,7 @@
       if (started) return;
       const descriptor = engines[ctx.variant];
       void ctx.shell.resumeAudio();
-      ctx.setLoading(`Restoring registered ${descriptor.label} data…`, '', 5);
+      ctx.setLoading(`Preparing ${descriptor.label}…`, '', 5);
       const data = await ctx.dataClient.load(ownerData, {
         onProgress(detail) {
           if (detail.phase === 'checking-cache') ctx.setLoading(`Checking ${detail.key}…`);

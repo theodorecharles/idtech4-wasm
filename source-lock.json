@@ -1,8 +1,11 @@
 {
   "framework": {
     "url": "https://github.com/theodorecharles/wasm-game-framework.git",
-    "commit": "536d919ef6e6cd171aa826812db9f888ffbf04a3",
-    "version": "0.7.0"
+    "commit": "9359fb186399d0c608cbcd063f7e6fd03eb7c210",
+    "version": "0.7.1"
+  },
+  "buildTools": {
+    "meson": "1.8.3"
   },
   "dhewm3": {
     "url": "https://github.com/dhewm/dhewm3.git",
@@ -21,4 +24,3 @@
     "commit": "0c9c121ff337b1c6df129ecedcfe569e7c50c332"
   }
 }
-

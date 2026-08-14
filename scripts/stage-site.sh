@@ -8,8 +8,8 @@ doom_web="${work_root}/dhewm3/build/web"
 quake_web="${work_root}/openq4/build/web"
 site="${repo_root}/build/site"
 
-test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.0"
-test "$(git -C "${framework_dir}" rev-parse HEAD)" = "536d919ef6e6cd171aa826812db9f888ffbf04a3"
+test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.1"
+test "$(git -C "${framework_dir}" rev-parse HEAD)" = "9359fb186399d0c608cbcd063f7e6fd03eb7c210"
 for required in \
   "${doom_web}/dhewm3-base.js" "${doom_web}/dhewm3-base.wasm" \
   "${doom_web}/dhewm3-roe.js" "${doom_web}/dhewm3-roe.wasm" \

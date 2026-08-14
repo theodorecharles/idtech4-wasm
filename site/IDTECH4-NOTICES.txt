@@ -6,7 +6,6 @@ corresponding source repository. Doom 3 engine notices are provided in
 engineering record are provided in /QUAKE4-SDK-EULA.rtf and
 /QUAKE4-REDISTRIBUTION.md.
 
-Owners supply Doom 3 data through /data/base, Resurrection of Evil data through
-/data/d3xp, and Quake 4 data through /data/q4base. Those files are never part of
+Required Doom 3 data is mounted at /data/base, Resurrection of Evil data at
+/data/d3xp, and Quake 4 data at /data/q4base. Those files are never part of
 this site or image layer.
-

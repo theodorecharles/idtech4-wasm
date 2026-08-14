@@ -45,13 +45,13 @@ index f174fc5..55bf8ca 100644
 +*.PK4
 diff --git a/Dockerfile b/Dockerfile
 new file mode 100644
-index 0000000..1e2856a
+index 0000000..b30e173
 --- /dev/null
 +++ b/Dockerfile
 @@ -0,0 +1,27 @@
 +# syntax=docker/dockerfile:1.7
 +
-+ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.0
++ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.1
 +FROM ${FRAMEWORK_IMAGE}
 +
 +ARG VCS_REF=unknown
@@ -78,7 +78,7 @@ index 0000000..1e2856a
 +  CMD wget -q -O - http://127.0.0.1:8088/ >/dev/null
 diff --git a/RUNBOOK.md b/RUNBOOK.md
 new file mode 100644
-index 0000000..13b999e
+index 0000000..c9bafdb
 --- /dev/null
 +++ b/RUNBOOK.md
 @@ -0,0 +1,101 @@
@@ -101,8 +101,8 @@ index 0000000..13b999e
 +
 +## Canonical browser contract
 +
-+The repository pins `wasm-game-framework` 0.7.0 at public commit
-+`536d919ef6e6cd171aa826812db9f888ffbf04a3`.
++The repository pins `wasm-game-framework` 0.7.1 at public commit
++`9359fb186399d0c608cbcd063f7e6fd03eb7c210`.
 +
 +Downstream owns only:
 +
@@ -130,9 +130,9 @@ index 0000000..13b999e
 +two-file `d3xp` policy. All variants share one namespace so the browser stores
 +identical base PK4s once.
 +
-+## Owner data flow
++## Data flow
 +
-+The owner mounts registered data at `/data/base` and, for RoE, `/data/d3xp`.
++The required data is mounted at `/data/base` and, for RoE, `/data/d3xp`.
 +On first use the framework streams the exact manifest files from the container
 +into its private browser cache. Later launches restore unchanged files from
 +IndexedDB. The worker mounts browser `File` objects read-only through WORKERFS
@@ -144,22 +144,22 @@ index 0000000..13b999e
 +## Build
 +
 +```bash
-+cd /home/ted/Development/wasm/doom3-wasm
-+source /home/ted/emsdk/emsdk_env.sh
++cd doom3-wasm
++source "${EMSDK_DIR:?Set EMSDK_DIR}/emsdk_env.sh"
 +JOBS=4 ./scripts/build-web.sh
 +IMAGE_REPO=local/doom3-wasm IMAGE_TAG=dev ./scripts/build-docker.sh
 +```
 +
 +The build creates two native-source Emscripten clients (`base` and `roe`) and
 +four framework images (suite, Doom 3 SP, Doom 3 MP, RoE). The suite and locked
-+0.7.0 images pass HTTP bootstrap/metadata, WASM range, and `/data` isolation
++0.7.1 images pass HTTP bootstrap/metadata, WASM range, and `/data` isolation
 +checks.
 +
 +## Verified browser boundary (2026-08-14)
 +
-+A serialized Chrome test with the owner Steam data verified:
++A serialized Chrome test with Steam data verified:
 +
-+- browser owner-data caching and restore;
++- browser data caching and restore;
 +- all nine base PK4s mounted by the real native engine;
 +- a worker-safe direct WebGL 2 context on the transferred OffscreenCanvas;
 +- no selector/`document` access during context creation or resize;
@@ -1162,7 +1162,7 @@ index 0000000..64356a8
 +echo "Built Doom 3 suite plus doom3, doom3-mp, and roe locked images."
 diff --git a/scripts/build-web.sh b/scripts/build-web.sh
 new file mode 100755
-index 0000000..7974ebf
+index 0000000..8b1b9c0
 --- /dev/null
 +++ b/scripts/build-web.sh
 @@ -0,0 +1,80 @@
@@ -1178,8 +1178,8 @@ index 0000000..7974ebf
 +framework_dir="${D3WASM_FRAMEWORK_DIR:-${repo_root}/../wasm-game-framework}"
 +
 +framework_version="$(node -p "require('${framework_dir}/package.json').version")"
-+if [[ "${framework_version}" != "0.7.0" ]]; then
-+	echo "doom3-wasm requires wasm-game-framework 0.7.0, found ${framework_version}." >&2
++if [[ "${framework_version}" != "0.7.1" ]]; then
++	echo "doom3-wasm requires wasm-game-framework 0.7.1, found ${framework_version}." >&2
 +	exit 1
 +fi
 +
@@ -1361,7 +1361,7 @@ index 0000000..29ba1e5
 +};
 diff --git a/web/game-adapter.js b/web/game-adapter.js
 new file mode 100644
-index 0000000..be5ef44
+index 0000000..4469a48
 --- /dev/null
 +++ b/web/game-adapter.js
 @@ -0,0 +1,168 @@
@@ -1466,7 +1466,7 @@ index 0000000..be5ef44
 +    async start(ctx) {
 +      if (started) return;
 +      void ctx.shell.resumeAudio();
-+      ctx.setLoading('Restoring registered Doom 3 data…', '', 5);
++      ctx.setLoading('Preparing Doom 3…', '', 5);
 +      const data = await ctx.dataClient.load(ownerData, {
 +        onProgress(detail) {
 +          if (detail.phase === 'checking-cache') ctx.setLoading(`Checking ${detail.key}…`);
@@ -1588,7 +1588,7 @@ index 0000000..fd1feee
 +}
 diff --git a/web/wasm-game.json b/web/wasm-game.json
 new file mode 100644
-index 0000000..a9d7df9
+index 0000000..aaa6aa3
 --- /dev/null
 +++ b/web/wasm-game.json
 @@ -0,0 +1,85 @@
@@ -1596,7 +1596,7 @@ index 0000000..a9d7df9
 +  "id": "doom3",
 +  "kicker": "id Tech 4",
 +  "defaultVariant": "doom3",
-+  "description": "Run Doom 3 and Resurrection of Evil from your own registered game data.",
++  "description": "Doom 3 and Resurrection of Evil in the browser.",
 +  "displayMode": "dynamic",
 +  "nativeManaged": true,
 +  "syncBackbuffer": false,
@@ -1635,7 +1635,7 @@ index 0000000..a9d7df9
 +      "pwa": {
 +        "name": "Doom 3",
 +        "shortName": "Doom 3",
-+        "description": "Doom 3 single-player in the browser, using owner-provided game data.",
++        "description": "Doom 3 single-player in the browser.",
 +        "themeColor": "#67130c",
 +        "backgroundColor": "#000000",
 +        "icons": [
@@ -1651,7 +1651,7 @@ index 0000000..a9d7df9
 +      "pwa": {
 +        "name": "Doom 3 Multiplayer",
 +        "shortName": "Doom 3 MP",
-+        "description": "Doom 3 multiplayer in the browser, using owner-provided game data.",
++        "description": "Doom 3 multiplayer in the browser.",
 +        "themeColor": "#67130c",
 +        "backgroundColor": "#000000",
 +        "icons": [
@@ -1667,7 +1667,7 @@ index 0000000..a9d7df9
 +      "pwa": {
 +        "name": "Doom 3: Resurrection of Evil",
 +        "shortName": "Doom 3: RoE",
-+        "description": "Resurrection of Evil in the browser, using owner-provided game data.",
++        "description": "Resurrection of Evil in the browser.",
 +        "themeColor": "#32100c",
 +        "backgroundColor": "#000000",
 +        "icons": [

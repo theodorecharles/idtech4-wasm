@@ -20,8 +20,15 @@ for variant in suite doom3 doom3-mp roe quake4 quake4-mp; do
     sleep 1
   done
   base_url="http://127.0.0.1:${port}"
-  test "$(curl -fsS "${base_url}/wasm-game-framework.json" | node -pe 'JSON.parse(fs.readFileSync(0)).version')" = "0.7.0"
+  test "$(curl -fsS "${base_url}/wasm-game-framework.json" | node -pe 'JSON.parse(fs.readFileSync(0)).version')" = "0.7.1"
   curl -fsS "${base_url}/" | rg -q 'wasm-game-bootstrap.js'
+  curl -fsS "${base_url}/wasm-game.json" | node -e '
+    const config = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+    const descriptions = [config.description, ...Object.values(config.variants || {}).flatMap(value => [value.description, value.pwa?.description])].filter(Boolean);
+    const forbidden = /\b(owner|registered|files?|storage|cache|provenance|legal|license)\b/i;
+    const invalid = descriptions.find(value => forbidden.test(value));
+    if (invalid) throw new Error(`normal launcher copy describes setup policy: ${invalid}`);
+  '
   test "$(curl -fsS "${base_url}/wasm-game-config.js" | sed -n 's/.*= "\([^"]*\)";.*/\1/p')" = "${variant}"
   test "$(curl -fsSI "${base_url}/" | tr -d '\r' | awk -F': ' 'tolower($1)=="cross-origin-opener-policy" {print $2}')" = "same-origin"
   test "$(curl -fsSI "${base_url}/" | tr -d '\r' | awk -F': ' 'tolower($1)=="cross-origin-embedder-policy" {print $2}')" = "require-corp"

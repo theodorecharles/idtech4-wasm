@@ -13,13 +13,13 @@ The patches are complete binary-capable diffs from each pinned native upstream c
 
 | Capability | Doom 3 SP/MP + RoE | Quake 4 SP/MP |
 | --- | --- | --- |
-| Canonical framework 0.7.0 shell | Yes | Yes |
+| Canonical framework 0.7.1 shell | Yes | Yes |
 | Downstream-authored HTML/CSS/SW/PWA files | None | None |
 | Variant-aware PWA metadata and authentic icon | Yes | Yes |
 | Remembered launch-fullscreen preference | Yes | Yes |
 | Responsive dynamic canvas and contained native menu pointer mapping | Yes | Yes |
 | Worker `OffscreenCanvas` WebGL 2 creation without DOM access | Yes | Yes |
-| Exact owner-data validation and browser IndexedDB reuse | Yes | Yes |
+| Exact required-data validation and browser IndexedDB reuse | Yes | Yes |
 | `/data` inaccessible by direct HTTP request | Yes | Yes |
 | Suite and locked Docker images | Yes | Yes |
 | Browser runtime status | Still in development | Still in development |
