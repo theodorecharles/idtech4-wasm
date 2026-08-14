@@ -106,16 +106,16 @@
       ctx.setLoading(`Preparing ${descriptor.label}…`, '', 5);
       const data = await ctx.dataClient.load(ownerData, {
         onProgress(detail) {
-          if (detail.phase === 'checking-cache') ctx.setLoading(`Checking ${detail.key}…`);
+          if (detail.phase === 'checking-cache') ctx.setLoading(`Preparing ${descriptor.label}…`);
           if (detail.phase === 'downloading') {
             const percent = detail.total ? Math.floor(detail.received * 100 / detail.total) : 0;
-            ctx.setLoading(`Caching ${detail.key} from this container…`, `${percent}%`, Math.min(80, 5 + percent * 0.7));
+            ctx.setLoading(`Preparing ${descriptor.label}…`, `${percent}%`, Math.min(80, 5 + percent * 0.7));
           }
-          if (detail.phase === 'restored') ctx.setLoading(`Restored ${detail.key} from this browser…`);
+          if (detail.phase === 'restored') ctx.setLoading(`Preparing ${descriptor.label}…`);
         }
       });
       document.documentElement.dataset.wasmDataSource = data.entries.every(entry => entry.cached) ? 'cache' : 'container';
-      ctx.setLoading(`Starting the ${descriptor.label} engine…`, '', 90);
+      ctx.setLoading(`Starting ${descriptor.label}…`, '', 90);
       const canvas = ctx.elements.canvas;
       const offscreen = canvas.transferControlToOffscreen();
       const preferences = ctx.preferences.values();
@@ -125,7 +125,7 @@
       worker.onmessage = event => {
         const message = event.data || {};
         if (message.type === 'log') ctx.log(message.text);
-        if (message.type === 'status') ctx.setLoading(message.text);
+        if (message.type === 'status') ctx.setLoading(`Preparing ${descriptor.label}…`);
         if (message.type === 'engine-state' || message.type === 'ready') {
           state = message.state || 'menu';
           if (message.type === 'ready') ctx.setLoading('', '', 100);

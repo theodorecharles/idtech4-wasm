@@ -32,6 +32,7 @@ async function exercise(variant) {
   const canvasListeners = new Map();
   const messages = [];
   const transitions = [];
+  const loading = [];
   let createdPolicy;
   let loadedPolicy;
   const canvas = {
@@ -66,14 +67,17 @@ async function exercise(variant) {
     },
     shell: { resumeAudio() {}, engineState() { return transitions.at(-1) || 'launcher'; } },
     dataClient: {
-      async load(policy) {
+      async load(policy, options) {
         loadedPolicy = policy;
+        options.onProgress({ phase: 'checking-cache', key: policy.files[0].key });
+        options.onProgress({ phase: 'downloading', key: policy.files[0].key, received: 1, total: 2 });
+        options.onProgress({ phase: 'restored', key: policy.files[0].key });
         return { entries: policy.files.map(file => ({ cached: true, file: {}, policy: { path: file.mountName } })) };
       }
     },
     elements: { canvas },
     preferences: { values: () => ({ playerName: 'Browser Marine', qualityProfile: 'ultra' }) },
-    setLoading() {}, log() {}, setStatus() {},
+    setLoading(...detail) { loading.push(detail); }, log() {}, setStatus() {},
     setEngineState(state) { transitions.push(state); },
     showRuntime(state) { transitions.push(state); }
   };
@@ -83,6 +87,9 @@ async function exercise(variant) {
   assert.equal(createdPolicy.namespace, dataManifest.variants[variant].namespace || dataManifest.namespace);
   await adapter.start(context);
   assert.equal(loadedPolicy, createdPolicy);
+  FakeWorker.instance.onmessage({ data: { type: 'status', text: 'Mounting owner data from cache' } });
+  assert.doesNotMatch(loading.flat().join('\n'), /files?|data|cache|container|browser|mount|verif|directory|folder|path|module|engine/i,
+    'normal loading copy must remain title-focused');
   assert.equal(FakeWorker.instance.source, variant.startsWith('quake4') ? '/q4-worker.js' : '/d3-worker.js');
   const start = messages.find(message => message.type === 'start');
   assert.ok(start);
