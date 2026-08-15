@@ -230,7 +230,7 @@
           intervalMs: Number(ctx.config.persistence.intervalMs ?? 5000),
           requestDurability: ctx.config.persistence.requestDurability !== false,
           frameworkScript: '/shared-shell/wasm-game-framework.js',
-          frameworkVersion: '0.9.1'
+          frameworkVersion: '0.9.2'
         }
       }, [offscreen]);
     },

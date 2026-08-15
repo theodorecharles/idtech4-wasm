@@ -8,7 +8,7 @@ Do not submit anything upstream. All work is local downstream work and all gener
 
 ## Exact inputs
 
-`source-lock.json` is authoritative. A build must stop if the framework is not version `0.9.1` at commit `68bfbd1dbc0104084c7760e486b7437d4c7bb90e`. It must also stop if a native checkout or patch checksum differs from the lock.
+`source-lock.json` is authoritative. A build must stop if the framework is not version `0.9.2` at commit `53bc7e6eeef1ae35dcf3b25dea4e3ec0ab46726f`. It must also stop if a native checkout or patch checksum differs from the lock.
 
 The family repository stores neither complete source forks nor retail content. It reconstructs the browser ports by checking out exact native commits, verifying `patches/SHA256SUMS`, and applying the committed patch queues in `.work/`.
 
@@ -49,7 +49,7 @@ The openQ4 build must create both source-derived packages under `baseoq4`:
 | Quake 4 multiplayer | Still in development |
 | Prey (2006) | Still in development |
 
-Verified browser progress includes PK4 restoration, worker startup, a direct WebGL 2 `OffscreenCanvas` context, filesystem initialization, source game-module loading, declarations, configuration, input bridge, and renderer capability probing. Prey compiles and links 459 native translation units into a WASM module with its gamecode hardlinked. In the last serialized Chrome smoke before the framework 0.9.1 migration, all 13 PK4s loaded, the WebGL 2 context became current, ARB2 reported available, and startup then stopped at `R_ReloadARBPrograms`; a reload reached native main and the first cached PK4 in about eight seconds. The current shared blocker is the desktop fixed-function/ARB program renderer path. Static/native/image/HTTP verification of the 0.9.1 migration does not prove that blocker fixed; a new serialized browser pass is required when the Chrome slot is explicitly granted. Continue by implementing that renderer boundary in native source behind `__EMSCRIPTEN__`; do not fork the framework or add a main-thread DOM workaround.
+Verified browser progress includes PK4 restoration, worker startup, a direct WebGL 2 `OffscreenCanvas` context, filesystem initialization, source game-module loading, declarations, configuration, input bridge, and renderer capability probing. Prey compiles and links 459 native translation units into a WASM module with its gamecode hardlinked. In the last serialized Chrome smoke before the framework 0.9.2 migration, all 13 PK4s loaded, the WebGL 2 context became current, ARB2 reported available, and startup then stopped at `R_ReloadARBPrograms`; a reload reached native main and the first cached PK4 in about eight seconds. The current shared blocker is the desktop fixed-function/ARB program renderer path. Static/native/image/HTTP verification of the 0.9.2 migration does not prove that blocker fixed; a new serialized browser pass is required when the Chrome slot is explicitly granted. Continue by implementing that renderer boundary in native source behind `__EMSCRIPTEN__`; do not fork the framework or add a main-thread DOM workaround.
 
 All browser executables use growable wasm32 memory with an explicit 2 GiB maximum. Doom 3/RoE start at 128 MiB; Quake 4 and Prey start at 256 MiB. Retail PK4 `File`/`Blob` objects and Quake 4's source-derived PK4s mount through `WORKERFS`; they must not be materialized as whole-package `Uint8Array` files in MEMFS.
 

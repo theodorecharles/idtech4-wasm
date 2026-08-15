@@ -112,7 +112,7 @@ async function exercise(variant) {
     intervalMs: 5000,
     requestDurability: true,
     frameworkScript: '/shared-shell/wasm-game-framework.js',
-    frameworkVersion: '0.9.1'
+    frameworkVersion: '0.9.2'
   });
   assert.equal(start.entries[0].path, createdPolicy.files[0].mountName);
   if (variant === 'prey') {

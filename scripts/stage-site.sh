@@ -9,8 +9,8 @@ quake_web="${work_root}/openq4/build/web"
 prey_web="${work_root}/prey2006/output/emscripten"
 site="${repo_root}/build/site"
 
-test "$(node -p "require('${framework_dir}/package.json').version")" = "0.9.1"
-test "$(git -C "${framework_dir}" rev-parse HEAD)" = "68bfbd1dbc0104084c7760e486b7437d4c7bb90e"
+test "$(node -p "require('${framework_dir}/package.json').version")" = "0.9.2"
+test "$(git -C "${framework_dir}" rev-parse HEAD)" = "53bc7e6eeef1ae35dcf3b25dea4e3ec0ab46726f"
 for required in \
   "${doom_web}/dhewm3-base.js" "${doom_web}/dhewm3-base.wasm" \
   "${doom_web}/dhewm3-roe.js" "${doom_web}/dhewm3-roe.wasm" \

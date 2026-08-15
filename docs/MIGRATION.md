@@ -14,7 +14,7 @@ The patches are complete binary-capable diffs from each pinned native upstream c
 
 | Capability | Doom 3 SP/MP + RoE | Quake 4 SP/MP | Prey SP |
 | --- | --- | --- | --- |
-| Canonical framework 0.9.1 shell | Yes | Yes | Yes |
+| Canonical framework 0.9.2 shell | Yes | Yes | Yes |
 | Downstream-authored HTML/CSS/SW/PWA files | None | None | None |
 | Variant-aware PWA metadata and source icon | Yes | Yes | Yes |
 | Remembered launch-fullscreen preference | Yes | Yes | Yes |
