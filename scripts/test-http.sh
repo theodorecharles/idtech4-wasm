@@ -5,7 +5,8 @@ image_repo="${IMAGE_REPO:-local/idtech4-wasm}"
 image_tag="${IMAGE_TAG:-dev}"
 port="${IDTECH4_TEST_PORT:-18140}"
 container="codex-idtech4-http-test"
-trap 'docker rm -f "${container}" >/dev/null 2>&1 || true' EXIT
+cookie_jar="$(mktemp -t idtech4-http-cookie.XXXXXX)"
+trap 'docker rm -f "${container}" >/dev/null 2>&1 || true; rm -f -- "${cookie_jar}"' EXIT
 
 for variant in suite doom3 doom3-mp roe quake4 quake4-mp prey; do
   if [[ "${variant}" == suite ]]; then
@@ -20,15 +21,25 @@ for variant in suite doom3 doom3-mp roe quake4 quake4-mp prey; do
     sleep 1
   done
   base_url="http://127.0.0.1:${port}"
-  test "$(curl -fsS "${base_url}/wasm-game-framework.json" | node -pe 'JSON.parse(fs.readFileSync(0)).version')" = "0.7.6"
+  test "$(curl -fsS "${base_url}/wasm-game-framework.json" | node -pe 'JSON.parse(fs.readFileSync(0)).version')" = "0.9.1"
   curl -fsS "${base_url}/" | rg -q 'wasm-game-bootstrap.js'
   curl -fsS "${base_url}/wasm-game.json" | node -e '
     const config = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+    if (config.fullscreen !== true) throw new Error("fullscreen capability must remain enabled");
+    if (config.controller?.mode !== "wasdMouse") throw new Error("controller policy is missing");
+    if (config.persistence?.root !== "/save/{variant}") throw new Error("variant persistence policy is missing");
     const descriptions = [config.description, ...Object.values(config.variants || {}).flatMap(value => [value.description, value.pwa?.description])].filter(Boolean);
     const forbidden = /\b(owner|registered|files?|storage|cache|provenance|legal|license)\b/i;
     const invalid = descriptions.find(value => forbidden.test(value));
     if (invalid) throw new Error(`normal launcher copy describes setup policy: ${invalid}`);
   '
+  curl -fsS "${base_url}/app.webmanifest" | node -e '
+    const manifest = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+    if (!manifest.name || !manifest.short_name || !manifest.start_url || !manifest.icons?.length) {
+      throw new Error("generated PWA manifest is incomplete");
+    }
+  '
+  curl -fsS "${base_url}/service-worker.js" | rg -q 'wasm-game'
   curl -fsS "${base_url}/wasm-game-data.json" | node -e '
     const data = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
     for (const [key, policy] of Object.entries(data.variants || {})) {
@@ -61,3 +72,21 @@ for variant in suite doom3 doom3-mp roe quake4 quake4-mp prey; do
   fi
   printf '%s OK\n' "${image}"
 done
+
+protected_image="${image_repo}:${image_tag}"
+docker rm -f "${container}" >/dev/null 2>&1 || true
+docker run -d --name "${container}" -p "127.0.0.1:${port}:8088" \
+  -e WASM_GAME_PASSWORD='idtech4-http-fixture' "${protected_image}" >/dev/null
+for attempt in {1..60}; do
+  curl -fsS "http://127.0.0.1:${port}/" >/dev/null 2>&1 && break
+  sleep 1
+done
+base_url="http://127.0.0.1:${port}"
+test "$(curl -fsS "${base_url}/auth/status" | node -pe 'JSON.parse(fs.readFileSync(0)).required')" = "true"
+test "$(curl -sS -o /dev/null -w '%{http_code}' "${base_url}/game-data/status")" = "401"
+test "$(curl -sS -c "${cookie_jar}" -o /dev/null -w '%{http_code}' \
+  -H 'content-type: application/json' -d '{"password":"idtech4-http-fixture"}' "${base_url}/auth/login")" = "200"
+test "$(curl -sS -b "${cookie_jar}" -o /dev/null -w '%{http_code}' "${base_url}/game-data/status")" = "200"
+test "$(curl -sS -b "${cookie_jar}" -o /dev/null -w '%{http_code}' "${base_url}/data")" = "404"
+test "$(curl -sS -b "${cookie_jar}" -o /dev/null -w '%{http_code}' "${base_url}/local-data")" = "404"
+printf '%s password gate OK\n' "${protected_image}"

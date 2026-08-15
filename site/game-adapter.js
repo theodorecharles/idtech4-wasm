@@ -30,6 +30,30 @@
     'quake4-mp': { worker: '/q4-worker.js', label: 'Quake 4 multiplayer' },
     prey: { worker: '/prey-worker.js', label: 'Prey' }
   });
+  const controllerGameplayKeys = Object.freeze({
+    forward: 26,
+    backward: 22,
+    left: 4,
+    right: 7,
+    jump: 44,
+    crouch: 6,
+    reload: 21,
+    weapon: 20,
+    previousWeapon: 47,
+    nextWeapon: 48,
+    scoreboard: 43,
+    sprint: 225,
+    melee: 9,
+    menu: 41
+  });
+  const controllerMenuKeys = Object.freeze({
+    forward: 82,
+    backward: 81,
+    left: 80,
+    right: 79,
+    accept: 40,
+    back: 41
+  });
 
   let worker = null;
   let ownerData = null;
@@ -37,6 +61,11 @@
   let state = 'menu';
   let captured = false;
   let lastResize = null;
+  let lifecycleBound = false;
+  const controllerHeldKeys = new Set();
+  const controllerHeldButtons = new Set();
+  let controllerLookX = 0;
+  let controllerLookY = 0;
 
   function keyScan(code) {
     if (scancodes[code]) return scancodes[code];
@@ -58,6 +87,47 @@
 
   function post(message) {
     if (worker) worker.postMessage(message);
+  }
+
+  function setControllerKey(scan, down) {
+    if (!scan || controllerHeldKeys.has(scan) === down) return;
+    if (down) controllerHeldKeys.add(scan); else controllerHeldKeys.delete(scan);
+    post({ type: 'key', scan, key: 0, down, repeat: false });
+  }
+
+  function setControllerButton(button, down) {
+    if (controllerHeldButtons.has(button) === down) return;
+    if (down) controllerHeldButtons.add(button); else controllerHeldButtons.delete(button);
+    post({ type: 'pointer-button', button, down });
+  }
+
+  function releaseController() {
+    for (const scan of Array.from(controllerHeldKeys)) setControllerKey(scan, false);
+    for (const button of Array.from(controllerHeldButtons)) setControllerButton(button, false);
+    controllerLookX = 0;
+    controllerLookY = 0;
+  }
+
+  function applyControllerKeys(actions, mapping) {
+    const wanted = new Set();
+    for (const [action, scan] of Object.entries(mapping)) {
+      if (Number(actions[action]) >= 0.5) wanted.add(scan);
+    }
+    for (const scan of Array.from(controllerHeldKeys)) {
+      if (!wanted.has(scan)) setControllerKey(scan, false);
+    }
+    for (const scan of wanted) setControllerKey(scan, true);
+  }
+
+  function bindPersistenceLifecycle() {
+    if (lifecycleBound) return;
+    lifecycleBound = true;
+    const flush = () => { if (started) post({ type: 'persist' }); };
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden') flush();
+    });
+    globalThis.addEventListener?.('pagehide', flush);
+    globalThis.addEventListener?.('beforeunload', flush);
   }
 
   function bindInput(ctx) {
@@ -98,6 +168,7 @@
       ctx.elements.canvas.id = 'canvas';
       ctx.elements.canvas.addEventListener('contextmenu', event => event.preventDefault());
       bindInput(ctx);
+      bindPersistenceLifecycle();
     },
 
     async start(ctx) {
@@ -127,7 +198,9 @@
         const message = event.data || {};
         if (message.type === 'log') ctx.log(message.text);
         if (message.type === 'status') ctx.setLoading(`Preparing ${descriptor.label}…`);
+        if (message.type === 'persistence-ready') ctx.log(`Save/config persistence restored at ${message.root}.`);
         if (message.type === 'engine-state' || message.type === 'ready') {
+          if (state !== message.state) releaseController();
           state = message.state || 'menu';
           if (message.type === 'ready') ctx.setLoading('', '', 100);
           ctx.showRuntime(state);
@@ -149,7 +222,16 @@
         type: 'start', canvas: offscreen, variant: ctx.variant,
         entries: data.entries.map(entry => ({ path: entry.policy.mountName || entry.policy.path, file: entry.file })),
         width, height, playerName: preferences.playerName,
-        engineArguments: profileArguments[preferences.qualityProfile] || profileArguments.high
+        engineArguments: profileArguments[preferences.qualityProfile] || profileArguments.high,
+        persistence: {
+          namespace: ctx.persistence.namespace,
+          root: ctx.persistence.root,
+          debounceMs: Number(ctx.config.persistence.debounceMs ?? 750),
+          intervalMs: Number(ctx.config.persistence.intervalMs ?? 5000),
+          requestDurability: ctx.config.persistence.requestDurability !== false,
+          frameworkScript: '/shared-shell/wasm-game-framework.js',
+          frameworkVersion: '0.9.1'
+        }
       }, [offscreen]);
     },
 
@@ -163,6 +245,35 @@
       if (started && !captured) post({ type: 'pointer-absolute', x: detail.x, y: detail.y });
     },
     pointerButton(detail) { if (started) post({ type: 'pointer-button', button: detail.button, down: detail.pressed, x: detail.x, y: detail.y }); },
+    controllerFrame(detail) {
+      if (!started || !detail.actions) return;
+      const actions = detail.actions;
+      if (state === 'gameplay') {
+        applyControllerKeys(actions, controllerGameplayKeys);
+        setControllerButton(0, Number(actions.attack) >= 0.5);
+        setControllerButton(2, Number(actions.altAttack) >= 0.5);
+        const scale = Math.max(1, Number(detail.deltaMs) || 16.667) * 0.45;
+        controllerLookX += Number(actions.lookX || 0) * scale;
+        controllerLookY += Number(actions.lookY || 0) * scale;
+        const dx = Math.trunc(controllerLookX);
+        const dy = Math.trunc(controllerLookY);
+        controllerLookX -= dx;
+        controllerLookY -= dy;
+        if (dx || dy) post({ type: 'pointer-relative', dx, dy });
+        return;
+      }
+      setControllerButton(0, false);
+      setControllerButton(2, false);
+      applyControllerKeys({
+        forward: actions.forward,
+        backward: actions.backward,
+        left: actions.left,
+        right: actions.right,
+        accept: Math.max(Number(actions.jump) || 0, Number(actions.attack) || 0),
+        back: Math.max(Number(actions.crouch) || 0, Number(actions.menu) || 0)
+      }, controllerMenuKeys);
+    },
+    controllerChanged() { releaseController(); },
     inputCaptureChanged(nextCaptured) {
       captured = Boolean(nextCaptured);
       if (started) post({ type: 'capture', captured });

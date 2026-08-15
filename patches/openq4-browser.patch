@@ -57,13 +57,13 @@ index d2e194d0..ea328c9c 100644
 +content/baseoq4/pak0/fonts/*.ttf
 diff --git a/Dockerfile b/Dockerfile
 new file mode 100644
-index 00000000..15b9c712
+index 00000000..746ed386
 --- /dev/null
 +++ b/Dockerfile
 @@ -0,0 +1,39 @@
 +# syntax=docker/dockerfile:1.7
 +
-+ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.6
++ARG FRAMEWORK_IMAGE=wasm-game-framework:0.9.1
 +FROM ${FRAMEWORK_IMAGE}
 +
 +ARG VCS_REF=unknown
@@ -102,10 +102,10 @@ index 00000000..15b9c712
 +  CMD wget -q -O - http://127.0.0.1:8088/ >/dev/null
 diff --git a/RUNBOOK.md b/RUNBOOK.md
 new file mode 100644
-index 00000000..b1b613ee
+index 00000000..85307066
 --- /dev/null
 +++ b/RUNBOOK.md
-@@ -0,0 +1,116 @@
+@@ -0,0 +1,127 @@
 +# Quake 4 WebAssembly runbook
 +
 +Status: **Still in development**
@@ -124,8 +124,8 @@ index 00000000..b1b613ee
 +
 +## Canonical browser contract
 +
-+The repository pins `wasm-game-framework` 0.7.6 at public commit
-+`e617f090deaa294dacd033afa52c09f811a3e690`.
++The repository pins `wasm-game-framework` 0.9.1 at public commit
++`68bfbd1dbc0104084c7760e486b7437d4c7bb90e`.
 +
 +Downstream owns only:
 +
@@ -161,7 +161,14 @@ index 00000000..b1b613ee
 +streams the exact manifest files from the container into its private browser
 +cache. Later launches restore unchanged files from IndexedDB. The worker mounts
 +the resulting browser `File` objects read-only through WORKERFS at
-+`/owner-data/q4base`; saves/configuration use IDBFS at `/save`.
++`/owner-data/q4base`. The worker imports the exact framework script, restores
++the variant-specific IDBFS root before native main, and points native
++save/config paths at `/save/{variant}`. Native config and successful save
++operations notify that same worker-local persistence manager.
++
++The browser adapter translates the framework's `wasdMouse` controller actions
++into the exported native SDL key, mouse-button, and relative-motion seams.
++Disabling or unplugging a controller releases every held native action.
 +
 +Two OpenQ4 runtime packages are built from source and are safe to ship with the
 +engine. Do not replace either package with a retail file and do not weaken these
@@ -174,6 +181,10 @@ index 00000000..b1b613ee
 +
 +Both build scripts verify MD5, byte size, and ZIP integrity. Docker staging
 +rejects every unrecognized `.pk4` or `.pak`.
++
++The retail files and both source-derived packages remain Blob-backed WORKERFS
++files. In particular, the 641,646,791-byte `pak1.pk4` is not materialized as a
++whole-package `Uint8Array` in the wasm heap.
 +
 +## Build
 +
@@ -33503,10 +33514,10 @@ Zzp`r1{A^lXH;1KF?NxJGT3uOF_g}l!Bh3H+
 
 diff --git a/docker/game-adapter.js b/docker/game-adapter.js
 new file mode 100644
-index 00000000..fedbfe2e
+index 00000000..b1ecfc0b
 --- /dev/null
 +++ b/docker/game-adapter.js
-@@ -0,0 +1,164 @@
+@@ -0,0 +1,253 @@
 +(() => {
 +  'use strict';
 +
@@ -33531,12 +33542,25 @@ index 00000000..fedbfe2e
 +    ShiftLeft: 225, ShiftRight: 229, ControlLeft: 224, ControlRight: 228,
 +    AltLeft: 226, AltRight: 230
 +  });
++  const controllerKeys = Object.freeze({
++    forward: 26, backward: 22, left: 4, right: 7, jump: 44, crouch: 6,
++    reload: 21, weapon: 20, previousWeapon: 47, nextWeapon: 48,
++    scoreboard: 43, sprint: 225, melee: 9, menu: 41
++  });
++  const controllerMenuKeys = Object.freeze({
++    forward: 82, backward: 81, left: 80, right: 79, accept: 40, back: 41
++  });
 +  let worker = null;
 +  let ownerData = null;
 +  let started = false;
 +  let state = 'menu';
 +  let captured = false;
 +  let lastResize = null;
++  let lifecycleBound = false;
++  const controllerHeldKeys = new Set();
++  const controllerHeldButtons = new Set();
++  let controllerLookX = 0;
++  let controllerLookY = 0;
 +
 +  function keyScan(code) {
 +    if (scancodes[code]) return scancodes[code];
@@ -33559,6 +33583,44 @@ index 00000000..fedbfe2e
 +  }
 +
 +  function post(message) { if (worker) worker.postMessage(message); }
++
++  function setControllerKey(scan, down) {
++    if (!scan || controllerHeldKeys.has(scan) === down) return;
++    if (down) controllerHeldKeys.add(scan); else controllerHeldKeys.delete(scan);
++    post({ type: 'key', scan, key: 0, down, repeat: false });
++  }
++
++  function setControllerButton(button, down) {
++    if (controllerHeldButtons.has(button) === down) return;
++    if (down) controllerHeldButtons.add(button); else controllerHeldButtons.delete(button);
++    post({ type: 'pointer-button', button, down });
++  }
++
++  function releaseController() {
++    for (const scan of Array.from(controllerHeldKeys)) setControllerKey(scan, false);
++    for (const button of Array.from(controllerHeldButtons)) setControllerButton(button, false);
++    controllerLookX = 0;
++    controllerLookY = 0;
++  }
++
++  function applyControllerKeys(actions, mapping) {
++    const wanted = new Set(Object.entries(mapping)
++      .filter(([action]) => Number(actions[action]) >= 0.5)
++      .map(([, scan]) => scan));
++    for (const scan of Array.from(controllerHeldKeys)) if (!wanted.has(scan)) setControllerKey(scan, false);
++    for (const scan of wanted) setControllerKey(scan, true);
++  }
++
++  function bindPersistenceLifecycle() {
++    if (lifecycleBound) return;
++    lifecycleBound = true;
++    const flush = () => { if (started) post({ type: 'persist' }); };
++    document.addEventListener('visibilitychange', () => {
++      if (document.visibilityState === 'hidden') flush();
++    });
++    globalThis.addEventListener?.('pagehide', flush);
++    globalThis.addEventListener?.('beforeunload', flush);
++  }
 +
 +  function bindInput(ctx) {
 +    document.addEventListener('keydown', event => {
@@ -33594,6 +33656,7 @@ index 00000000..fedbfe2e
 +      ctx.elements.canvas.id = 'canvas';
 +      ctx.elements.canvas.addEventListener('contextmenu', event => event.preventDefault());
 +      bindInput(ctx);
++      bindPersistenceLifecycle();
 +    },
 +
 +    async start(ctx) {
@@ -33602,12 +33665,12 @@ index 00000000..fedbfe2e
 +      ctx.setLoading('Preparing Quake 4…', '', 5);
 +      const data = await ctx.dataClient.load(ownerData, {
 +        onProgress(detail) {
-+          if (detail.phase === 'checking-cache') ctx.setLoading(`Checking ${detail.key}…`);
++          if (detail.phase === 'checking-cache') ctx.setLoading('Preparing Quake 4…');
 +          if (detail.phase === 'downloading') {
 +            const percent = detail.total ? Math.floor(detail.received * 100 / detail.total) : 0;
-+            ctx.setLoading(`Caching ${detail.key} from this container…`, `${percent}%`, Math.min(80, 5 + percent * 0.7));
++            ctx.setLoading('Preparing Quake 4…', `${percent}%`, Math.min(80, 5 + percent * 0.7));
 +          }
-+          if (detail.phase === 'restored') ctx.setLoading(`Restored ${detail.key} from this browser…`);
++          if (detail.phase === 'restored') ctx.setLoading('Preparing Quake 4…');
 +        }
 +      });
 +      document.documentElement.dataset.wasmDataSource = data.entries.every(entry => entry.cached) ? 'cache' : 'container';
@@ -33623,6 +33686,7 @@ index 00000000..fedbfe2e
 +        if (message.type === 'log') ctx.log(message.text);
 +        if (message.type === 'status') ctx.setLoading(message.text);
 +        if (message.type === 'engine-state') {
++          if (state !== message.state) releaseController();
 +          state = message.state || 'menu';
 +          ctx.showRuntime(state);
 +        }
@@ -33648,11 +33712,21 @@ index 00000000..fedbfe2e
 +        type: 'start', canvas: offscreen, variant: ctx.variant,
 +        entries: data.entries.map(entry => ({ path: entry.policy.path, file: entry.file })),
 +        width, height, playerName: preferences.playerName,
-+        engineArguments: profileArguments[preferences.qualityProfile] || profileArguments.high
++        engineArguments: profileArguments[preferences.qualityProfile] || profileArguments.high,
++        persistence: {
++          namespace: ctx.persistence.namespace,
++          root: ctx.persistence.root,
++          debounceMs: Number(ctx.config.persistence.debounceMs ?? 750),
++          intervalMs: Number(ctx.config.persistence.intervalMs ?? 5000),
++          requestDurability: ctx.config.persistence.requestDurability !== false,
++          frameworkScript: '/shared-shell/wasm-game-framework.js',
++          frameworkVersion: '0.9.1'
++        }
 +      }, [offscreen]);
 +    },
 +
 +    readEngineState() { return state; },
++    readCaptureIntent() { return state === 'gameplay'; },
 +    resize(detail) {
 +      lastResize = detail;
 +      if (started) post({ type: 'resize', width: detail.requestedWidth, height: detail.requestedHeight });
@@ -33661,6 +33735,32 @@ index 00000000..fedbfe2e
 +      if (started && !captured) post({ type: 'pointer-absolute', x: detail.x, y: detail.y });
 +    },
 +    pointerButton(detail) { if (started) post({ type: 'pointer-button', button: detail.button, down: detail.pressed, x: detail.x, y: detail.y }); },
++    controllerFrame(detail) {
++      if (!started || !detail.actions) return;
++      const actions = detail.actions;
++      if (state === 'gameplay') {
++        applyControllerKeys(actions, controllerKeys);
++        setControllerButton(0, Number(actions.attack) >= 0.5);
++        setControllerButton(2, Number(actions.altAttack) >= 0.5);
++        const scale = Math.max(1, Number(detail.deltaMs) || 16.667) * 0.45;
++        controllerLookX += Number(actions.lookX || 0) * scale;
++        controllerLookY += Number(actions.lookY || 0) * scale;
++        const dx = Math.trunc(controllerLookX);
++        const dy = Math.trunc(controllerLookY);
++        controllerLookX -= dx;
++        controllerLookY -= dy;
++        if (dx || dy) post({ type: 'pointer-relative', dx, dy });
++        return;
++      }
++      setControllerButton(0, false);
++      setControllerButton(2, false);
++      applyControllerKeys({
++        forward: actions.forward, backward: actions.backward, left: actions.left, right: actions.right,
++        accept: Math.max(Number(actions.jump) || 0, Number(actions.attack) || 0),
++        back: Math.max(Number(actions.crouch) || 0, Number(actions.menu) || 0)
++      }, controllerMenuKeys);
++    },
++    controllerChanged() { releaseController(); },
 +    inputCaptureChanged(nextCaptured) {
 +      captured = Boolean(nextCaptured);
 +      if (started) post({ type: 'capture', captured });
@@ -33673,14 +33773,14 @@ index 00000000..fedbfe2e
 +})();
 diff --git a/docker/q4-worker.js b/docker/q4-worker.js
 new file mode 100644
-index 00000000..3c25f15f
+index 00000000..ce353494
 --- /dev/null
 +++ b/docker/q4-worker.js
-@@ -0,0 +1,134 @@
+@@ -0,0 +1,151 @@
 +'use strict';
 +
 +let runtime = null;
-+let persist = null;
++let persistenceManager = null;
 +let started = false;
 +let failed = false;
 +
@@ -33698,37 +33798,55 @@ index 00000000..3c25f15f
 +  if (started) return;
 +  started = true;
 +  failed = false;
-+  const { canvas, entries = [], variant, width, height, playerName, engineArguments = [] } = message;
++  const { canvas, entries = [], variant, width, height, playerName, engineArguments = [], persistence = {} } = message;
 +  const multiplayer = variant === 'quake4-mp';
 +  try {
 +    post('status', 'Loading Quake 4 engine and game module…');
++    if (persistence.frameworkScript !== '/shared-shell/wasm-game-framework.js' || persistence.frameworkVersion !== '0.9.1') {
++      throw new Error('Quake 4 requires the exact wasm-game-framework 0.9.1 worker persistence contract.');
++    }
++    importScripts(persistence.frameworkScript);
++    if (self.WasmGameFramework?.version !== persistence.frameworkVersion) {
++      throw new Error(`Quake 4 loaded wasm-game-framework ${self.WasmGameFramework?.version || 'unknown'}, expected ${persistence.frameworkVersion}.`);
++    }
++    persistenceManager = self.WasmGameFramework.createPersistenceManager({
++      namespace: persistence.namespace,
++      root: persistence.root,
++      debounceMs: persistence.debounceMs,
++      intervalMs: persistence.intervalMs,
++      requestDurability: persistence.requestDurability,
++      onError: error => post('log', `Save/config persistence warning: ${error?.message || error}`)
++    });
++    self.idtech4PersistenceDirty = () => persistenceManager?.markDirty();
++    self.idtech4PersistenceSave = () => {
++      persistenceManager?.markDirty();
++      void persistenceManager?.save().catch(error => post('log', `Save/config persistence warning: ${error?.message || error}`));
++    };
 +    const moduleName = multiplayer ? 'game-mp_wasm32.wasm' : 'game-sp_wasm32.wasm';
 +    const [enginePak0, enginePak1, gameModule, modManifest] = await Promise.all([
 +      fetch('/baseoq4/pak0.pk4').then(response => {
 +        if (!response.ok) throw new Error(`baseoq4/pak0.pk4: HTTP ${response.status}`);
-+        return response.arrayBuffer();
++        return response.blob();
 +      }),
 +      fetch('/baseoq4/pak1.pk4').then(response => {
 +        if (!response.ok) throw new Error(`baseoq4/pak1.pk4: HTTP ${response.status}`);
-+        return response.arrayBuffer();
++        return response.blob();
 +      }),
 +      fetch(`/baseoq4/${moduleName}`).then(response => {
 +        if (!response.ok) throw new Error(`${moduleName}: HTTP ${response.status}`);
-+        return response.arrayBuffer();
++        return response.blob();
 +      }),
 +      fetch('/baseoq4/mod.json').then(response => {
 +        if (!response.ok) throw new Error(`baseoq4/mod.json: HTTP ${response.status}`);
-+        return response.text();
++        return response.blob();
 +      })
 +    ]);
 +
-+    self.Module = runtime = {
-+      canvas,
-+      arguments: [
++    const nativeArguments = [
 +        '+set', 'fs_basepath', '/owner-data',
 +        '+set', 'fs_cdpath', '/',
-+        '+set', 'fs_homepath', '/save',
-+        '+set', 'fs_savepath', '/save',
++        '+set', 'fs_homepath', persistence.root,
++        '+set', 'fs_savepath', persistence.root,
 +        '+set', 'fs_game', 'baseoq4',
 +        '+set', 'fs_game_base', 'q4base',
 +        '+set', 'com_nextGameModule', multiplayer ? 'game_mp' : 'game_sp',
@@ -33738,38 +33856,34 @@ index 00000000..3c25f15f
 +        '+set', 'r_customHeight', String(height || 720),
 +        '+set', 'ui_name', String(playerName || 'Kane').slice(0, 32),
 +        ...engineArguments
-+      ],
++      ];
++    self.Module = runtime = {
++      canvas,
++      noInitialRun: true,
 +      locateFile: path => new URL(path, self.location.href).href,
 +      preRun: [() => {
 +        FS.mkdir('/owner-data');
 +        FS.mount(WORKERFS, { blobs: entries.map(entry => ({ name: entry.path, data: entry.file })) }, '/owner-data');
 +        FS.mkdir('/baseoq4');
-+        FS.mkdir('/save');
-+        FS.mount(IDBFS, {}, '/save');
-+        FS.writeFile('/baseoq4/pak0.pk4', new Uint8Array(enginePak0), { canOwn: true });
-+        FS.writeFile('/baseoq4/pak1.pk4', new Uint8Array(enginePak1), { canOwn: true });
-+        FS.writeFile(`/baseoq4/${moduleName}`, new Uint8Array(gameModule), { canOwn: true });
-+        FS.writeFile('/baseoq4/mod.json', modManifest);
-+        addRunDependency('quake4-save-restore');
-+        FS.syncfs(true, error => {
-+          if (error) post('log', `Save restore warning: ${error}`);
-+          removeRunDependency('quake4-save-restore');
-+        });
++        FS.mount(WORKERFS, { blobs: [
++          { name: 'pak0.pk4', data: enginePak0 },
++          { name: 'pak1.pk4', data: enginePak1 },
++          { name: moduleName, data: gameModule },
++          { name: 'mod.json', data: modManifest }
++        ] }, '/baseoq4');
 +      }],
 +      print: line => post('log', line),
 +      printErr: line => post('log', `ERR: ${line}`),
 +      onRuntimeInitialized: () => {
-+        post('status', 'Initializing the Quake 4 renderer and menus…');
-+        let syncing = false;
-+        persist = () => {
-+          if (syncing) return;
-+          syncing = true;
-+          FS.syncfs(false, error => {
-+            syncing = false;
-+            if (error) post('log', `Save persistence warning: ${error}`);
-+          });
-+        };
-+        setInterval(persist, 10000);
++        void (async () => {
++          await persistenceManager.attach(runtime.FS);
++          post('persistence-ready', null, { root: persistenceManager.root, namespace: persistenceManager.namespace });
++          post('status', 'Initializing the Quake 4 renderer and menus…');
++          runtime.callMain(nativeArguments);
++        })().catch(reason => {
++          failed = true;
++          post('error', reason instanceof Error ? reason.stack || reason.message : reason);
++        });
 +      },
 +      onExit: status => {
 +        if (status !== 0) {
@@ -33800,7 +33914,10 @@ index 00000000..3c25f15f
 +self.onmessage = event => {
 +  const message = event.data || {};
 +  if (message.type === 'start') { void launch(message); return; }
-+  if (message.type === 'persist') { persist?.(); return; }
++  if (message.type === 'persist') {
++    void persistenceManager?.save().catch(error => post('log', `Save/config persistence warning: ${error?.message || error}`));
++    return;
++  }
 +  if (!runtime || failed) return;
 +  if (message.type === 'resize') call('Q4WASM_BrowserResize', message.width | 0, message.height | 0);
 +  if (message.type === 'open-menu') call('Q4WASM_BrowserOpenMenu');
@@ -33898,10 +34015,10 @@ index 00000000..1c290de1
 +}
 diff --git a/docker/wasm-game.json b/docker/wasm-game.json
 new file mode 100644
-index 00000000..6b086716
+index 00000000..0c763291
 --- /dev/null
 +++ b/docker/wasm-game.json
-@@ -0,0 +1,75 @@
+@@ -0,0 +1,87 @@
 +{
 +  "id": "quake4",
 +  "kicker": "id Tech 4",
@@ -33918,6 +34035,18 @@ index 00000000..6b086716
 +  "canvasHeight": 720,
 +  "maxDpr": 1,
 +  "pointerLock": true,
++  "controller": {
++    "mode": "wasdMouse",
++    "moveDeadzone": 0.18,
++    "lookDeadzone": 0.14,
++    "lookSensitivity": 1.0
++  },
++  "persistence": {
++    "root": "/save/{variant}",
++    "debounceMs": 750,
++    "intervalMs": 5000,
++    "requestDurability": true
++  },
 +  "identity": true,
 +  "graphics": true,
 +  "advanced": true,
@@ -34336,7 +34465,7 @@ index 73c84cd7..2227bfa4 100644
  
  Changing either takes effect the next time fonts are loaded, so restart the game
 diff --git a/meson.build b/meson.build
-index 23f600d3..cbd29d9e 100644
+index 23f600d3..93132dd5 100644
 --- a/meson.build
 +++ b/meson.build
 @@ -8,7 +8,7 @@ project(
@@ -34613,7 +34742,7 @@ index 23f600d3..cbd29d9e 100644
  linux_executable_pie = false
  linux_module_link_hardening_args = []
  linux_cross_dso_sanitizer_cpp_args = []
-@@ -994,6 +1037,32 @@ if host_system == 'linux'
+@@ -994,6 +1037,34 @@ if host_system == 'linux'
    linux_executable_pie = cpp.has_argument('-fPIE') and cc.has_argument('-fPIE') and cpp.has_link_argument('-pie')
  endif
  
@@ -34631,8 +34760,10 @@ index 23f600d3..cbd29d9e 100644
 +    '-sLEGACY_GL_EMULATION=1',
 +    '-sMAIN_MODULE=1',
 +    '-sFORCE_FILESYSTEM=1',
-+    '-sEXPORTED_RUNTIME_METHODS=FS,WORKERFS,IDBFS',
++    '-sEXPORTED_RUNTIME_METHODS=FS,WORKERFS,IDBFS,callMain',
 +    '-sALLOW_MEMORY_GROWTH=1',
++    '-sINITIAL_MEMORY=268435456',
++    '-sMAXIMUM_MEMORY=2147483648',
 +    '-sSTACK_SIZE=8388608',
 +    '-sEXIT_RUNTIME=0',
 +    '-lworkerfs.js',
@@ -34646,7 +34777,7 @@ index 23f600d3..cbd29d9e 100644
  if use_sdl3_backend
    shared_cpp_args += ['-DUSE_SDL3=1']
    shared_c_args += ['-DUSE_SDL3=1']
-@@ -1171,7 +1240,7 @@ if build_engine
+@@ -1171,7 +1242,7 @@ if build_engine
      cpp_args: bse_cpp_args,
      c_args: bse_c_args,
      cpp_pch: pch_headers,
@@ -34655,7 +34786,7 @@ index 23f600d3..cbd29d9e 100644
      install: false,
    )
  
-@@ -1185,7 +1254,7 @@ if build_engine
+@@ -1185,7 +1256,7 @@ if build_engine
      cpp_args: engine_cpp_args,
      c_args: engine_c_args,
      cpp_pch: pch_headers,
@@ -34664,7 +34795,7 @@ index 23f600d3..cbd29d9e 100644
      install: false,
    )
  
-@@ -1198,7 +1267,7 @@ if build_engine
+@@ -1198,7 +1269,7 @@ if build_engine
      cpp_args: engine_cpp_args,
      c_args: engine_c_args,
      cpp_pch: pch_headers,
@@ -34673,7 +34804,7 @@ index 23f600d3..cbd29d9e 100644
      install: false,
    )
  endif
-@@ -1219,6 +1288,7 @@ if build_engine
+@@ -1219,6 +1290,7 @@ if build_engine
        cpp_pch: pch_headers,
        win_subsystem: 'windows',
        link_args: engine_link_args,
@@ -34681,7 +34812,7 @@ index 23f600d3..cbd29d9e 100644
        install: true,
        install_dir: install_root_dir,
      )
-@@ -1235,6 +1305,7 @@ if build_engine
+@@ -1235,6 +1307,7 @@ if build_engine
        objc_args: engine_objc_args,
        cpp_pch: pch_headers,
        link_args: engine_link_args,
@@ -34689,7 +34820,7 @@ index 23f600d3..cbd29d9e 100644
        install: true,
        install_dir: install_root_dir,
      )
-@@ -1249,86 +1320,92 @@ if build_engine
+@@ -1249,86 +1322,92 @@ if build_engine
        c_args: engine_c_args,
        cpp_pch: pch_headers,
        link_args: engine_link_args,
@@ -34855,7 +34986,7 @@ index 23f600d3..cbd29d9e 100644
    endif
  endif
  
-@@ -1371,6 +1448,11 @@ elif host_system == 'linux'
+@@ -1371,6 +1450,11 @@ elif host_system == 'linux'
    linux_game_module_export_map = files('tools/build/linux_game_module.map')
    game_module_link_args += '-Wl,--version-script=' + linux_game_module_export_map[0].full_path()
    game_module_link_depends += linux_game_module_export_map
@@ -34867,7 +34998,7 @@ index 23f600d3..cbd29d9e 100644
  endif
  
  game_idlib_library = disabler()
-@@ -1390,7 +1472,7 @@ if build_engine or build_games
+@@ -1390,7 +1474,7 @@ if build_engine or build_games
      c_args: game_common_c_args,
      cpp_pch: game_idlib_pch_headers,
      override_options: game_target_override_options,
@@ -34876,7 +35007,7 @@ index 23f600d3..cbd29d9e 100644
      gnu_symbol_visibility: host_system == 'windows' ? 'default' : 'hidden',
      install: false,
    )
-@@ -1402,7 +1484,7 @@ if build_engine or build_games
+@@ -1402,7 +1486,7 @@ if build_engine or build_games
      c_args: game_common_c_args,
      cpp_pch: game_idlib_pch_headers,
      override_options: game_target_override_options,
@@ -34885,7 +35016,7 @@ index 23f600d3..cbd29d9e 100644
      gnu_symbol_visibility: host_system == 'windows' ? 'default' : 'hidden',
      install: false,
    )
-@@ -1441,7 +1523,7 @@ if build_engine and (build_renderer_gl or build_renderer_vk)
+@@ -1441,7 +1525,7 @@ if build_engine and (build_renderer_gl or build_renderer_vk)
      cpp_args: engine_cpp_args,
      c_args: engine_c_args,
      cpp_pch: pch_headers,
@@ -34894,7 +35025,7 @@ index 23f600d3..cbd29d9e 100644
      install: false,
    )
  endif
-@@ -1782,6 +1864,7 @@ summary(
+@@ -1782,6 +1866,7 @@ summary(
      'C++ standard': get_option('cpp_std'),
      'Platform backend requested': platform_backend_requested,
      'Platform backend': platform_backend,
@@ -34902,7 +35033,7 @@ index 23f600d3..cbd29d9e 100644
      'macOS graphics bridge': macos_graphics_bridge,
      'macOS OpenAL provider': macos_openal_provider,
      'OpenAL override root': openal_root_override == '' ? 'bundled/default' : openal_root_override,
-@@ -1806,7 +1889,7 @@ summary(
+@@ -1806,7 +1891,7 @@ summary(
      'OpenAL': openal_dep.found(),
      'stb_vorbis': stb_vorbis_dep.found(),
      'Precompiled headers': get_option('use_pch'),
@@ -35011,10 +35142,10 @@ index 00000000..98fdfad8
 +echo "Built Quake 4 suite plus quake4 and quake4-mp locked images (no retail q4base data)."
 diff --git a/scripts/build-web.sh b/scripts/build-web.sh
 new file mode 100755
-index 00000000..df79ae2e
+index 00000000..32e55c98
 --- /dev/null
 +++ b/scripts/build-web.sh
-@@ -0,0 +1,119 @@
+@@ -0,0 +1,120 @@
 +#!/usr/bin/env bash
 +set -euo pipefail
 +
@@ -35027,8 +35158,8 @@ index 00000000..df79ae2e
 +framework_dir="${Q4WASM_FRAMEWORK_DIR:-${repo_root}/../wasm-game-framework}"
 +
 +framework_version="$(node -p "require('${framework_dir}/package.json').version")"
-+if [[ "${framework_version}" != "0.7.6" ]]; then
-+	echo "quake4-wasm requires wasm-game-framework 0.7.6, found ${framework_version}." >&2
++if [[ "${framework_version}" != "0.9.1" ]]; then
++	echo "quake4-wasm requires wasm-game-framework 0.9.1, found ${framework_version}." >&2
 +	exit 1
 +fi
 +
@@ -35125,6 +35256,7 @@ index 00000000..df79ae2e
 +test ! -e "${web_dir}/index.html"
 +test ! -e "${web_dir}/app.webmanifest"
 +test ! -e "${web_dir}/service-worker.js"
++node "${framework_dir}/scripts/check-game-package.js" "${web_dir}"
 +
 +printf 'Built retail-data-free Quake 4 web checkpoint:\n'
 +printf '  %s (%s bytes)\n' "${web_dir}/openQ4-client_wasm32.js" "$(stat -c '%s' "${web_dir}/openQ4-client_wasm32.js")"
@@ -35135,7 +35267,7 @@ index 00000000..df79ae2e
 +printf '  %s (%s bytes)\n' "${web_dir}/baseoq4/pak1.pk4" "$(stat -c '%s' "${web_dir}/baseoq4/pak1.pk4")"
 +printf 'Retail q4base PK4s are provisioned under /data and browser-cached by the framework; they are not copied into build/web.\n'
 diff --git a/src/framework/Common.cpp b/src/framework/Common.cpp
-index b4e73b74..b9f8798c 100644
+index b4e73b74..2607c7b6 100644
 --- a/src/framework/Common.cpp
 +++ b/src/framework/Common.cpp
 @@ -42,6 +42,16 @@ If you have questions concerning this license or the applicable additional terms
@@ -35155,7 +35287,17 @@ index b4e73b74..b9f8798c 100644
  #define	MAX_PRINT_MSG_SIZE	4096
  #define MAX_WARNING_LIST	256
  
-@@ -5881,7 +5891,9 @@ static const char *openQ4_SelectGameModuleBaseName( void ) {
+@@ -2016,6 +2026,9 @@ void idCommonLocal::WriteConfigToFile( const char *filename ) {
+ 	idKeyInput::WriteBindings( f );
+ 	cvarSystem->WriteFlaggedVariables( CVAR_ARCHIVE, "seta", f );
+ 	fileSystem->CloseFile( f );
++#if defined( __EMSCRIPTEN__ )
++	EM_ASM( { self.idtech4PersistenceDirty?.(); } );
++#endif
+ }
+ 
+ /*
+@@ -5881,7 +5894,9 @@ static const char *openQ4_SelectGameModuleBaseName( void ) {
  #endif
  }
  
@@ -35166,7 +35308,7 @@ index b4e73b74..b9f8798c 100644
  	#define OPENQ4_MODULE_ARCH_TAG "x64"
  #elif defined( _M_IX86 ) || defined( __i386__ )
  	#define OPENQ4_MODULE_ARCH_TAG "x86"
-@@ -6325,6 +6337,7 @@ idCommonLocal::Init
+@@ -6325,6 +6340,7 @@ idCommonLocal::Init
  */
  void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
  	try {
@@ -35174,7 +35316,7 @@ index b4e73b74..b9f8798c 100644
  
  		// set interface pointers used by idLib
  		idLib::sys			= sys;
-@@ -6334,6 +6347,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
+@@ -6334,6 +6350,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
  
  		// initialize idLib
  		idLib::Init();
@@ -35182,7 +35324,7 @@ index b4e73b74..b9f8798c 100644
  
  		// clear warning buffer
  		ClearWarnings( GAME_NAME " initialization" );
-@@ -6346,6 +6360,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
+@@ -6346,6 +6363,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
  			argv = args.GetArgs( &argc );
  		}
  		ParseCommandLine( argc, argv );
@@ -35190,7 +35332,7 @@ index b4e73b74..b9f8798c 100644
  
  		// init console command system
  		cmdSystem->Init();
-@@ -6358,6 +6373,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
+@@ -6358,6 +6376,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
  
  		// register all static CVars
  		idCVar::RegisterStaticVars();
@@ -35198,7 +35340,7 @@ index b4e73b74..b9f8798c 100644
  
  		// print engine version
  		Printf( "%s\n", buildInfo.string );
-@@ -6367,6 +6383,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
+@@ -6367,6 +6386,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
  
  		// init the console so we can take prints
  		console->Init();
@@ -35206,7 +35348,7 @@ index b4e73b74..b9f8798c 100644
  
  		// get architecture info
  		Sys_Init();
-@@ -6387,6 +6404,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
+@@ -6387,6 +6407,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
  
  		// init commands
  		InitCommands();
@@ -35214,7 +35356,7 @@ index b4e73b74..b9f8798c 100644
  
  #ifdef ID_WRITE_VERSION
  		config_compressor = idCompressor::AllocArithmetic();
-@@ -6394,6 +6412,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
+@@ -6394,6 +6415,7 @@ void idCommonLocal::Init( int argc, const char **argv, const char *cmdline ) {
  
  		// game specific initialization
  		InitGame();
@@ -35294,6 +35436,32 @@ index 20426e40..666d357b 100644
  }
  
  /*
+diff --git a/src/framework/Session.cpp b/src/framework/Session.cpp
+index 3588786e..628532b6 100644
+--- a/src/framework/Session.cpp
++++ b/src/framework/Session.cpp
+@@ -51,6 +51,10 @@ If you have questions concerning this license or the applicable additional terms
+ #undef private
+ #include "../imagetools/ImageTools.h"
+ 
++#if defined( __EMSCRIPTEN__ )
++#include <emscripten/emscripten.h>
++#endif
++
+ idCVar	idSessionLocal::com_showAngles( "com_showAngles", "0", CVAR_SYSTEM | CVAR_BOOL, "" );
+ idCVar	idSessionLocal::com_minTics( "com_minTics", "1", CVAR_SYSTEM, "" );
+ idCVar	idSessionLocal::com_showTics( "com_showTics", "0", CVAR_SYSTEM | CVAR_BOOL, "" );
+@@ -6338,6 +6342,10 @@ bool idSessionLocal::SaveGame( const char *saveName, saveType_t saveType ) {
+ 	common->Printf( "Saved '%s'\n", saveSlotName.c_str() );
+ 	operationGuard.Complete();
+ 
++#if defined( __EMSCRIPTEN__ )
++	EM_ASM( { self.idtech4PersistenceSave?.(); } );
++#endif
++
+ 	return true;
+ #endif
+ }
 diff --git a/src/idlib/precompiled.h b/src/idlib/precompiled.h
 index 2944df25..d95a8c53 100644
 --- a/src/idlib/precompiled.h

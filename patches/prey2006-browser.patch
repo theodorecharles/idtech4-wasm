@@ -1,5 +1,5 @@
 diff --git a/neo/CMakeLists.txt b/neo/CMakeLists.txt
-index 9139574..9610033 100644
+index 9139574..17f29b4 100644
 --- a/neo/CMakeLists.txt
 +++ b/neo/CMakeLists.txt
 @@ -26,6 +26,7 @@ include(PackagePk4)
@@ -43,7 +43,7 @@ index 9139574..9610033 100644
 +		"-sOFFSCREENCANVAS_SUPPORT=1"
 +		"-sEXIT_RUNTIME=0"
 +		"-sENVIRONMENT=worker"
-+		"-sEXPORTED_RUNTIME_METHODS=FS,WORKERFS,IDBFS"
++		"-sEXPORTED_RUNTIME_METHODS=FS,WORKERFS,IDBFS,callMain"
 +		"-sASSERTIONS=1"
 +		"-sDISABLE_EXCEPTION_CATCHING=0"
 +		"-lworkerfs.js"
@@ -152,10 +152,31 @@ index 5c5fa12..74335b4 100644
  }
 -
 diff --git a/neo/framework/Common.cpp b/neo/framework/Common.cpp
-index a1d7516..e12e91e 100644
+index a1d7516..c4825fe 100644
 --- a/neo/framework/Common.cpp
 +++ b/neo/framework/Common.cpp
-@@ -2908,6 +2908,13 @@ void idCommonLocal::Init( int argc, char **argv ) {
+@@ -38,6 +38,10 @@ If you have questions concerning this license or the applicable additional terms
+ 
+ #include "Session_local.h"
+ 
++#if defined( __EMSCRIPTEN__ )
++#include <emscripten/emscripten.h>
++#endif
++
+ #include "../tools/compilers/dmap/dmap.h"
+ 
+ #ifdef _WIN32
+@@ -1086,6 +1090,9 @@ void idCommonLocal::WriteConfigToFile( const char *filename ) {
+ 	idKeyInput::WriteBindings( f );
+ 	cvarSystem->WriteFlaggedVariables( CVAR_ARCHIVE, "seta", f );
+ 	fileSystem->CloseFile( f );
++#if defined( __EMSCRIPTEN__ )
++	EM_ASM( { self.idtech4PersistenceDirty?.(); } );
++#endif
+ }
+ 
+ /*
+@@ -2908,6 +2915,13 @@ void idCommonLocal::Init( int argc, char **argv ) {
  	// we want to use the SDL event queue for dedicated servers. That
  	// requires video to be initialized, so we just use the dummy
  	// driver for headless boxen
@@ -169,7 +190,7 @@ index a1d7516..e12e91e 100644
  #if SDL_VERSION_ATLEAST(3, 0, 0)
  	SDL_SetHint(SDL_HINT_VIDEO_DRIVER, "dummy");
  #elif SDL_VERSION_ATLEAST(2, 0, 0)
-@@ -2933,6 +2940,7 @@ void idCommonLocal::Init( int argc, char **argv ) {
+@@ -2933,6 +2947,7 @@ void idCommonLocal::Init( int argc, char **argv ) {
  			Sys_Error("Error while initializing SDL: %s", SDL_GetError());
  		}
  	}
@@ -177,7 +198,7 @@ index a1d7516..e12e91e 100644
  
  	Sys_InitThreads();
  
-@@ -3058,10 +3066,14 @@ void idCommonLocal::Init( int argc, char **argv ) {
+@@ -3058,10 +3073,14 @@ void idCommonLocal::Init( int argc, char **argv ) {
  		Sys_Error( "Error during initialization" );
  	}
  
@@ -228,6 +249,38 @@ index ec0865c..ea3f6c4 100644
  	if ( bgl->opcode == DLTYPE_FILE ) {
  		if ( dynamic_cast<idFile_Permanent *>(bgl->f) ) {
  			// add the bgl to the background download list
+diff --git a/neo/framework/Session.cpp b/neo/framework/Session.cpp
+index c707a01..e79e9d0 100644
+--- a/neo/framework/Session.cpp
++++ b/neo/framework/Session.cpp
+@@ -32,6 +32,10 @@ If you have questions concerning this license or the applicable additional terms
+ #include "Session_local.h"
+ #include "../sound/snd_local.h"
+ 
++#if defined( __EMSCRIPTEN__ )
++#include <emscripten/emscripten.h>
++#endif
++
+ #define CDKEY_FILEPATH "../" BASE_GAMEDIR "/" CDKEY_FILE
+ #ifdef HUMANHEAD_XP // HUMANHEAD mdl
+ #define XPKEY_FILEPATH "../" BASE_GAMEDIR "/" XPKEY_FILE
+@@ -1902,6 +1906,9 @@ bool idSessionLocal::SaveGame( const char *saveName, bool autosave, const char*
+ 
+ 	syncNextGameFrame = true;
+ 
++#if defined( __EMSCRIPTEN__ )
++	EM_ASM( { self.idtech4PersistenceSave?.(); } );
++#endif
+ 
+ 	return true;
+ #endif
+@@ -3472,4 +3479,4 @@ void idSessionLocal::HideSubtitle( void ) const {
+ 	guiSubtitles->SetStateFloat( "subtitleAlpha3", 0 );
+ 	/*guiSubtitles->SetStateFloat( "subtitleAlpha4", 0 );
+ 	guiSubtitles->SetStateFloat( "subtitleAlpha5", 0 );*/
+-}
+\ No newline at end of file
++}
 diff --git a/neo/framework/Session_local.h b/neo/framework/Session_local.h
 index 3eab32d..322d52c 100644
 --- a/neo/framework/Session_local.h

@@ -14,6 +14,18 @@
   "canvasHeight": 720,
   "maxDpr": 1,
   "pointerLock": true,
+  "controller": {
+    "mode": "wasdMouse",
+    "moveDeadzone": 0.18,
+    "lookDeadzone": 0.14,
+    "lookSensitivity": 1.0
+  },
+  "persistence": {
+    "root": "/save/{variant}",
+    "debounceMs": 750,
+    "intervalMs": 5000,
+    "requestDurability": true
+  },
   "identity": true,
   "graphics": true,
   "advanced": true,

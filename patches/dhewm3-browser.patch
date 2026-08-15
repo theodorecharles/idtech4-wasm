@@ -45,13 +45,13 @@ index f174fc5..55bf8ca 100644
 +*.PK4
 diff --git a/Dockerfile b/Dockerfile
 new file mode 100644
-index 0000000..aba9eb5
+index 0000000..1518e74
 --- /dev/null
 +++ b/Dockerfile
 @@ -0,0 +1,27 @@
 +# syntax=docker/dockerfile:1.7
 +
-+ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.6
++ARG FRAMEWORK_IMAGE=wasm-game-framework:0.9.1
 +FROM ${FRAMEWORK_IMAGE}
 +
 +ARG VCS_REF=unknown
@@ -78,10 +78,10 @@ index 0000000..aba9eb5
 +  CMD wget -q -O - http://127.0.0.1:8088/ >/dev/null
 diff --git a/RUNBOOK.md b/RUNBOOK.md
 new file mode 100644
-index 0000000..5c25799
+index 0000000..55fbe32
 --- /dev/null
 +++ b/RUNBOOK.md
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,109 @@
 +# Doom 3 WebAssembly runbook
 +
 +Status: **Still in development**
@@ -101,8 +101,8 @@ index 0000000..5c25799
 +
 +## Canonical browser contract
 +
-+The repository pins `wasm-game-framework` 0.7.6 at public commit
-+`e617f090deaa294dacd033afa52c09f811a3e690`.
++The repository pins `wasm-game-framework` 0.9.1 at public commit
++`68bfbd1dbc0104084c7760e486b7437d4c7bb90e`.
 +
 +Downstream owns only:
 +
@@ -136,7 +136,15 @@ index 0000000..5c25799
 +On first use the framework streams the exact manifest files from the container
 +into its private browser cache. Later launches restore unchanged files from
 +IndexedDB. The worker mounts browser `File` objects read-only through WORKERFS
-+at `/owner-data`; saves/configuration use IDBFS at `/save`.
++at `/owner-data`. The worker imports the exact framework script, restores the
++variant-specific IDBFS root before native main, and points native save/config
++paths at `/save/{variant}`. Native config and successful save operations notify
++that same worker-local persistence manager.
++
++The browser adapter translates the framework's `wasdMouse` controller actions
++into the same exported native SDL key, mouse-button, and relative-motion seams
++used by keyboard and mouse input. Disabling or unplugging a controller releases
++every held native action.
 +
 +Retail files are never copied into `build/web`. Docker staging rejects every
 +`.pk4` and `.pak` under that directory.
@@ -152,7 +160,7 @@ index 0000000..5c25799
 +
 +The build creates two native-source Emscripten clients (`base` and `roe`) and
 +four framework images (suite, Doom 3 SP, Doom 3 MP, RoE). The suite and locked
-+0.7.6 images pass HTTP bootstrap/metadata, WASM range, and `/data` isolation
++0.9.1 images pass HTTP bootstrap/metadata, WASM range, and `/data` isolation
 +checks.
 +
 +## Verified browser boundary (2026-08-14)
@@ -184,7 +192,7 @@ index 0000000..5c25799
 +
 +Upstream contacted: **no**.
 diff --git a/neo/CMakeLists.txt b/neo/CMakeLists.txt
-index 98972d8..9d29b2a 100644
+index 98972d8..4fba698 100644
 --- a/neo/CMakeLists.txt
 +++ b/neo/CMakeLists.txt
 @@ -55,6 +55,9 @@ if(MSVC)
@@ -238,7 +246,7 @@ index 98972d8..9d29b2a 100644
 +		"-sOFFSCREENCANVAS_SUPPORT=1"
 +		"-sEXIT_RUNTIME=0"
 +		"-sENVIRONMENT=worker"
-+		"-sEXPORTED_RUNTIME_METHODS=FS,WORKERFS,IDBFS"
++		"-sEXPORTED_RUNTIME_METHODS=FS,WORKERFS,IDBFS,callMain"
 +		"-sASSERTIONS=1"
 +		"-sDISABLE_EXCEPTION_CATCHING=0"
 +		"-lworkerfs.js"
@@ -319,10 +327,31 @@ index f9362f9..03772c2 100644
  
  const float DEFAULT_GRAVITY			= 1066.0f;
 diff --git a/neo/framework/Common.cpp b/neo/framework/Common.cpp
-index dbf6c54..b374d0e 100644
+index dbf6c54..cfff2f5 100644
 --- a/neo/framework/Common.cpp
 +++ b/neo/framework/Common.cpp
-@@ -2560,6 +2560,7 @@ void idCommonLocal::Frame( void ) {
+@@ -60,6 +60,10 @@ If you have questions concerning this license or the applicable additional terms
+ 
+ #include "framework/Common.h"
+ 
++#if defined( __EMSCRIPTEN__ )
++#include <emscripten/emscripten.h>
++#endif
++
+ #include "GameCallbacks_local.h"
+ #include "Session_local.h" // DG: For FT_IsDemo/isDemo() hack
+ 
+@@ -1127,6 +1131,9 @@ void idCommonLocal::WriteConfigToFile( const char *filename ) {
+ 	idKeyInput::WriteBindings( f );
+ 	cvarSystem->WriteFlaggedVariables( CVAR_ARCHIVE, "seta", f );
+ 	fileSystem->CloseFile( f );
++#if defined( __EMSCRIPTEN__ )
++	EM_ASM( { self.idtech4PersistenceDirty?.(); } );
++#endif
+ }
+ 
+ /*
+@@ -2560,6 +2567,7 @@ void idCommonLocal::Frame( void ) {
  		if ( com_editors == 0 )
  #endif
  		{
@@ -330,7 +359,7 @@ index dbf6c54..b374d0e 100644
  			if ( com_timescale.GetFloat() == 1.0f && GLimp_GetSwapInterval() != 0
  				&& fabsf(60.0f - GLimp_GetDisplayRefresh()) < 1.0f ) {
  				// if we're using vsync and the display is running at about 60Hz, start next tic
-@@ -2573,6 +2574,7 @@ void idCommonLocal::Frame( void ) {
+@@ -2573,6 +2581,7 @@ void idCommonLocal::Frame( void ) {
  				Com_WaitForNextTicStart();
  			}
  			// else the com_ticNumber has already been updated and it's past time to start the next frame
@@ -338,7 +367,7 @@ index dbf6c54..b374d0e 100644
  		}
  
  		D3P_FRAMEMARK // tell profiler (tracy) that this is the end of a frame
-@@ -3018,6 +3020,15 @@ void idCommonLocal::Init( int argc, char **argv ) {
+@@ -3018,6 +3027,15 @@ void idCommonLocal::Init( int argc, char **argv ) {
  #endif
  #endif
  
@@ -354,7 +383,7 @@ index dbf6c54..b374d0e 100644
  #if SDL_VERSION_ATLEAST(3, 0, 0)
  	if ( ! SDL_Init(SDL_INIT_VIDEO | SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD) )
  	{
-@@ -3038,6 +3049,7 @@ void idCommonLocal::Init( int argc, char **argv ) {
+@@ -3038,6 +3056,7 @@ void idCommonLocal::Init( int argc, char **argv ) {
  			Sys_Error("Error while initializing SDL: %s", SDL_GetError());
  		}
  	}
@@ -362,7 +391,7 @@ index dbf6c54..b374d0e 100644
  
  	Sys_InitThreads();
  
-@@ -3175,8 +3187,14 @@ void idCommonLocal::Init( int argc, char **argv ) {
+@@ -3175,8 +3194,14 @@ void idCommonLocal::Init( int argc, char **argv ) {
  		Sys_Error( "Error during initialization" );
  	}
  
@@ -413,6 +442,31 @@ index 7edeb4d..f76ee5b 100644
  	if ( bgl->opcode == DLTYPE_FILE ) {
  		if ( dynamic_cast<idFile_Permanent *>(bgl->f) ) {
  			// add the bgl to the background download list
+diff --git a/neo/framework/Session.cpp b/neo/framework/Session.cpp
+index 29745c6..e7b18c9 100644
+--- a/neo/framework/Session.cpp
++++ b/neo/framework/Session.cpp
+@@ -37,6 +37,10 @@ If you have questions concerning this license or the applicable additional terms
+ 
+ #include "framework/Session_local.h"
+ 
++#if defined( __EMSCRIPTEN__ )
++#include <emscripten/emscripten.h>
++#endif
++
+ #if defined(__AROS__)
+ #define CDKEY_FILEPATH CDKEY_FILE
+ #define XPKEY_FILEPATH XPKEY_FILE
+@@ -2056,6 +2060,9 @@ bool idSessionLocal::SaveGame( const char *saveName, bool autosave, const char*
+ 
+ 	syncNextGameFrame = true;
+ 
++#if defined( __EMSCRIPTEN__ )
++	EM_ASM( { self.idtech4PersistenceSave?.(); } );
++#endif
+ 
+ 	return true;
+ #endif
 diff --git a/neo/framework/Session_local.h b/neo/framework/Session_local.h
 index c16e75e..a2b6aa4 100644
 --- a/neo/framework/Session_local.h
@@ -1162,10 +1216,10 @@ index 0000000..64356a8
 +echo "Built Doom 3 suite plus doom3, doom3-mp, and roe locked images."
 diff --git a/scripts/build-web.sh b/scripts/build-web.sh
 new file mode 100755
-index 0000000..bdde970
+index 0000000..8c3284c
 --- /dev/null
 +++ b/scripts/build-web.sh
-@@ -0,0 +1,80 @@
+@@ -0,0 +1,81 @@
 +#!/usr/bin/env bash
 +set -euo pipefail
 +
@@ -1178,8 +1232,8 @@ index 0000000..bdde970
 +framework_dir="${D3WASM_FRAMEWORK_DIR:-${repo_root}/../wasm-game-framework}"
 +
 +framework_version="$(node -p "require('${framework_dir}/package.json').version")"
-+if [[ "${framework_version}" != "0.7.6" ]]; then
-+	echo "doom3-wasm requires wasm-game-framework 0.7.6, found ${framework_version}." >&2
++if [[ "${framework_version}" != "0.9.1" ]]; then
++	echo "doom3-wasm requires wasm-game-framework 0.9.1, found ${framework_version}." >&2
 +	exit 1
 +fi
 +
@@ -1238,6 +1292,7 @@ index 0000000..bdde970
 +test ! -e "${web_dir}/index.html"
 +test ! -e "${web_dir}/app.webmanifest"
 +test ! -e "${web_dir}/service-worker.js"
++node "${framework_dir}/scripts/check-game-package.js" "${web_dir}"
 +
 +printf 'Built retail-data-free Doom 3 browser clients:\n'
 +for artifact in \
@@ -1248,13 +1303,13 @@ index 0000000..bdde970
 +printf 'Owner PK4s are provisioned under /data and cached privately by the framework; they are never copied into build/web.\n'
 diff --git a/web/d3-worker.js b/web/d3-worker.js
 new file mode 100644
-index 0000000..29ba1e5
+index 0000000..dd4e33f
 --- /dev/null
 +++ b/web/d3-worker.js
-@@ -0,0 +1,107 @@
+@@ -0,0 +1,122 @@
 +'use strict';
 +
-+let persist = null;
++let persistenceManager = null;
 +let runtime = null;
 +let started = false;
 +let failed = false;
@@ -1273,51 +1328,63 @@ index 0000000..29ba1e5
 +  if (started) return;
 +  started = true;
 +  failed = false;
-+  const { canvas, entries = [], variant, width, height, playerName, engineArguments = [] } = message;
++  const { canvas, entries = [], variant, width, height, playerName, engineArguments = [], persistence = {} } = message;
 +  const roe = variant === 'roe';
 +  try {
 +    post('status', `Loading ${roe ? 'Resurrection of Evil' : 'Doom 3'} engine…`);
++    if (persistence.frameworkScript !== '/shared-shell/wasm-game-framework.js' || persistence.frameworkVersion !== '0.9.1') {
++      throw new Error('Doom 3 requires the exact wasm-game-framework 0.9.1 worker persistence contract.');
++    }
++    importScripts(persistence.frameworkScript);
++    if (self.WasmGameFramework?.version !== persistence.frameworkVersion) {
++      throw new Error(`Doom 3 loaded wasm-game-framework ${self.WasmGameFramework?.version || 'unknown'}, expected ${persistence.frameworkVersion}.`);
++    }
++    persistenceManager = self.WasmGameFramework.createPersistenceManager({
++      namespace: persistence.namespace,
++      root: persistence.root,
++      debounceMs: persistence.debounceMs,
++      intervalMs: persistence.intervalMs,
++      requestDurability: persistence.requestDurability,
++      onError: error => post('log', `Save/config persistence warning: ${error?.message || error}`)
++    });
++    self.idtech4PersistenceDirty = () => persistenceManager?.markDirty();
++    self.idtech4PersistenceSave = () => {
++      persistenceManager?.markDirty();
++      void persistenceManager?.save().catch(error => post('log', `Save/config persistence warning: ${error?.message || error}`));
++    };
++    const nativeArguments = [
++      '+set', 'fs_basepath', '/owner-data',
++      '+set', 'fs_cdpath', '/owner-data',
++      '+set', 'fs_savepath', persistence.root,
++      '+set', 'fs_configpath', persistence.root,
++      '+set', 'r_fullscreen', '0',
++      '+set', 'r_mode', '-1',
++      '+set', 'r_customWidth', String(width || 1280),
++      '+set', 'r_customHeight', String(height || 720),
++      '+set', 'ui_name', String(playerName || 'Marine').slice(0, 32),
++      ...engineArguments,
++      ...(roe ? ['+set', 'fs_game', 'd3xp'] : [])
++    ];
 +    self.Module = runtime = {
 +      canvas,
-+      arguments: [
-+        '+set', 'fs_basepath', '/owner-data',
-+        '+set', 'fs_cdpath', '/owner-data',
-+        '+set', 'fs_savepath', '/save',
-+        '+set', 'fs_configpath', '/save',
-+        '+set', 'r_fullscreen', '0',
-+        '+set', 'r_mode', '-1',
-+        '+set', 'r_customWidth', String(width || 1280),
-+        '+set', 'r_customHeight', String(height || 720),
-+        '+set', 'ui_name', String(playerName || 'Marine').slice(0, 32),
-+        ...engineArguments,
-+        ...(roe ? ['+set', 'fs_game', 'd3xp'] : [])
-+      ],
++      noInitialRun: true,
 +      locateFile: path => new URL(path.endsWith('.wasm') ? `dhewm3-${roe ? 'roe' : 'base'}.wasm` : path, self.location.href).href,
 +      preRun: [() => {
 +        FS.mkdir('/owner-data');
 +        FS.mount(WORKERFS, { blobs: entries.map(entry => ({ name: entry.path, data: entry.file })) }, '/owner-data');
-+        FS.mkdir('/save');
-+        FS.mount(IDBFS, {}, '/save');
-+        addRunDependency('doom3-save-restore');
-+        FS.syncfs(true, error => {
-+          if (error) post('log', `Save restore warning: ${error}`);
-+          removeRunDependency('doom3-save-restore');
-+        });
 +      }],
 +      print: line => post('log', line),
 +      printErr: line => post('log', `ERR: ${line}`),
 +      onRuntimeInitialized: () => {
-+        post('status', 'Initializing the Doom 3 renderer and menus…');
-+        let syncing = false;
-+        persist = () => {
-+          if (syncing) return;
-+          syncing = true;
-+          FS.syncfs(false, error => {
-+            syncing = false;
-+            if (error) post('log', `Save persistence warning: ${error}`);
-+          });
-+        };
-+        setInterval(persist, 10000);
++        void (async () => {
++          await persistenceManager.attach(runtime.FS);
++          post('persistence-ready', null, { root: persistenceManager.root, namespace: persistenceManager.namespace });
++          post('status', 'Initializing the Doom 3 renderer and menus…');
++          runtime.callMain(nativeArguments);
++        })().catch(reason => {
++          failed = true;
++          post('error', reason instanceof Error ? reason.stack || reason.message : reason);
++        });
 +      },
 +      onExit: status => {
 +        if (status !== 0) {
@@ -1348,7 +1415,10 @@ index 0000000..29ba1e5
 +self.onmessage = event => {
 +  const message = event.data || {};
 +  if (message.type === 'start') { void launch(message); return; }
-+  if (message.type === 'persist') { persist?.(); return; }
++  if (message.type === 'persist') {
++    void persistenceManager?.save().catch(error => post('log', `Save/config persistence warning: ${error?.message || error}`));
++    return;
++  }
 +  if (!runtime || failed) return;
 +  if (message.type === 'resize') call('D3WASM_BrowserResize', message.width | 0, message.height | 0);
 +  if (message.type === 'open-menu') call('D3WASM_BrowserOpenMenu');
@@ -1361,10 +1431,10 @@ index 0000000..29ba1e5
 +};
 diff --git a/web/game-adapter.js b/web/game-adapter.js
 new file mode 100644
-index 0000000..5282c54
+index 0000000..5cbd4f5
 --- /dev/null
 +++ b/web/game-adapter.js
-@@ -0,0 +1,184 @@
+@@ -0,0 +1,273 @@
 +(() => {
 +  'use strict';
 +
@@ -1389,6 +1459,14 @@ index 0000000..5282c54
 +    ShiftLeft: 225, ShiftRight: 229, ControlLeft: 224, ControlRight: 228,
 +    AltLeft: 226, AltRight: 230
 +  });
++  const controllerKeys = Object.freeze({
++    forward: 26, backward: 22, left: 4, right: 7, jump: 44, crouch: 6,
++    reload: 21, weapon: 20, previousWeapon: 47, nextWeapon: 48,
++    scoreboard: 43, sprint: 225, melee: 9, menu: 41
++  });
++  const controllerMenuKeys = Object.freeze({
++    forward: 82, backward: 81, left: 80, right: 79, accept: 40, back: 41
++  });
 +
 +  let worker = null;
 +  let ownerData = null;
@@ -1396,6 +1474,11 @@ index 0000000..5282c54
 +  let state = 'menu';
 +  let captured = false;
 +  let lastResize = null;
++  let lifecycleBound = false;
++  const controllerHeldKeys = new Set();
++  const controllerHeldButtons = new Set();
++  let controllerLookX = 0;
++  let controllerLookY = 0;
 +
 +  function keyScan(code) {
 +    if (scancodes[code]) return scancodes[code];
@@ -1441,6 +1524,44 @@ index 0000000..5282c54
 +    if (worker) worker.postMessage(message);
 +  }
 +
++  function setControllerKey(scan, down) {
++    if (!scan || controllerHeldKeys.has(scan) === down) return;
++    if (down) controllerHeldKeys.add(scan); else controllerHeldKeys.delete(scan);
++    post({ type: 'key', scan, key: 0, down, repeat: false });
++  }
++
++  function setControllerButton(button, down) {
++    if (controllerHeldButtons.has(button) === down) return;
++    if (down) controllerHeldButtons.add(button); else controllerHeldButtons.delete(button);
++    post({ type: 'pointer-button', button, down });
++  }
++
++  function releaseController() {
++    for (const scan of Array.from(controllerHeldKeys)) setControllerKey(scan, false);
++    for (const button of Array.from(controllerHeldButtons)) setControllerButton(button, false);
++    controllerLookX = 0;
++    controllerLookY = 0;
++  }
++
++  function applyControllerKeys(actions, mapping) {
++    const wanted = new Set(Object.entries(mapping)
++      .filter(([action]) => Number(actions[action]) >= 0.5)
++      .map(([, scan]) => scan));
++    for (const scan of Array.from(controllerHeldKeys)) if (!wanted.has(scan)) setControllerKey(scan, false);
++    for (const scan of wanted) setControllerKey(scan, true);
++  }
++
++  function bindPersistenceLifecycle() {
++    if (lifecycleBound) return;
++    lifecycleBound = true;
++    const flush = () => { if (started) post({ type: 'persist' }); };
++    document.addEventListener('visibilitychange', () => {
++      if (document.visibilityState === 'hidden') flush();
++    });
++    globalThis.addEventListener?.('pagehide', flush);
++    globalThis.addEventListener?.('beforeunload', flush);
++  }
++
 +  function bindInput(ctx) {
 +    document.addEventListener('keydown', event => {
 +      if (!started || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -1472,6 +1593,7 @@ index 0000000..5282c54
 +      ctx.elements.canvas.id = 'canvas';
 +      ctx.elements.canvas.addEventListener('contextmenu', event => event.preventDefault());
 +      bindInput(ctx);
++      bindPersistenceLifecycle();
 +    },
 +
 +    async start(ctx) {
@@ -1480,12 +1602,12 @@ index 0000000..5282c54
 +      ctx.setLoading('Preparing Doom 3…', '', 5);
 +      const data = await ctx.dataClient.load(ownerData, {
 +        onProgress(detail) {
-+          if (detail.phase === 'checking-cache') ctx.setLoading(`Checking ${detail.key}…`);
++          if (detail.phase === 'checking-cache') ctx.setLoading('Preparing Doom 3…');
 +          if (detail.phase === 'downloading') {
 +            const percent = detail.total ? Math.floor(detail.received * 100 / detail.total) : 0;
-+            ctx.setLoading(`Caching ${detail.key} from this container…`, `${percent}%`, Math.min(80, 5 + percent * 0.7));
++            ctx.setLoading('Preparing Doom 3…', `${percent}%`, Math.min(80, 5 + percent * 0.7));
 +          }
-+          if (detail.phase === 'restored') ctx.setLoading(`Restored ${detail.key} from this browser…`);
++          if (detail.phase === 'restored') ctx.setLoading('Preparing Doom 3…');
 +        }
 +      });
 +      document.documentElement.dataset.wasmDataSource = data.entries.every(entry => entry.cached) ? 'cache' : 'container';
@@ -1500,6 +1622,7 @@ index 0000000..5282c54
 +        if (message.type === 'log') ctx.log(message.text);
 +        if (message.type === 'status') ctx.setLoading(message.text);
 +        if (message.type === 'engine-state') {
++          if (state !== message.state) releaseController();
 +          state = message.state || 'menu';
 +          ctx.showRuntime(state);
 +        }
@@ -1526,11 +1649,21 @@ index 0000000..5282c54
 +        entries: data.entries.map(entry => ({ path: entry.policy.path, file: entry.file })),
 +        width: size.width, height: size.height,
 +        playerName: preferences.playerName,
-+        engineArguments: profileArguments[preferences.qualityProfile] || profileArguments.high
++        engineArguments: profileArguments[preferences.qualityProfile] || profileArguments.high,
++        persistence: {
++          namespace: ctx.persistence.namespace,
++          root: ctx.persistence.root,
++          debounceMs: Number(ctx.config.persistence.debounceMs ?? 750),
++          intervalMs: Number(ctx.config.persistence.intervalMs ?? 5000),
++          requestDurability: ctx.config.persistence.requestDurability !== false,
++          frameworkScript: '/shared-shell/wasm-game-framework.js',
++          frameworkVersion: '0.9.1'
++        }
 +      }, [offscreen]);
 +    },
 +
 +    readEngineState() { return state; },
++    readCaptureIntent() { return state === 'gameplay'; },
 +    resize(detail) {
 +      lastResize = detail;
 +      if (started) post({ type: 'resize', width: detail.requestedWidth, height: detail.requestedHeight });
@@ -1539,6 +1672,32 @@ index 0000000..5282c54
 +      if (started && !captured) post({ type: 'pointer-absolute', x: detail.x, y: detail.y });
 +    },
 +    pointerButton(detail) { if (started) post({ type: 'pointer-button', button: detail.button, down: detail.pressed, x: detail.x, y: detail.y }); },
++    controllerFrame(detail) {
++      if (!started || !detail.actions) return;
++      const actions = detail.actions;
++      if (state === 'gameplay') {
++        applyControllerKeys(actions, controllerKeys);
++        setControllerButton(0, Number(actions.attack) >= 0.5);
++        setControllerButton(2, Number(actions.altAttack) >= 0.5);
++        const scale = Math.max(1, Number(detail.deltaMs) || 16.667) * 0.45;
++        controllerLookX += Number(actions.lookX || 0) * scale;
++        controllerLookY += Number(actions.lookY || 0) * scale;
++        const dx = Math.trunc(controllerLookX);
++        const dy = Math.trunc(controllerLookY);
++        controllerLookX -= dx;
++        controllerLookY -= dy;
++        if (dx || dy) post({ type: 'pointer-relative', dx, dy });
++        return;
++      }
++      setControllerButton(0, false);
++      setControllerButton(2, false);
++      applyControllerKeys({
++        forward: actions.forward, backward: actions.backward, left: actions.left, right: actions.right,
++        accept: Math.max(Number(actions.jump) || 0, Number(actions.attack) || 0),
++        back: Math.max(Number(actions.crouch) || 0, Number(actions.menu) || 0)
++      }, controllerMenuKeys);
++    },
++    controllerChanged() { releaseController(); },
 +    inputCaptureChanged(nextCaptured) {
 +      captured = Boolean(nextCaptured);
 +      if (started) post({ type: 'capture', captured });
@@ -1605,10 +1764,10 @@ index 0000000..64aad18
 +}
 diff --git a/web/wasm-game.json b/web/wasm-game.json
 new file mode 100644
-index 0000000..8f54aec
+index 0000000..c99b85d
 --- /dev/null
 +++ b/web/wasm-game.json
-@@ -0,0 +1,90 @@
+@@ -0,0 +1,102 @@
 +{
 +  "id": "doom3",
 +  "kicker": "id Tech 4",
@@ -1625,6 +1784,18 @@ index 0000000..8f54aec
 +  "canvasHeight": 720,
 +  "maxDpr": 1,
 +  "pointerLock": true,
++  "controller": {
++    "mode": "wasdMouse",
++    "moveDeadzone": 0.18,
++    "lookDeadzone": 0.14,
++    "lookSensitivity": 1.0
++  },
++  "persistence": {
++    "root": "/save/{variant}",
++    "debounceMs": 750,
++    "intervalMs": 5000,
++    "requestDurability": true
++  },
 +  "identity": true,
 +  "graphics": true,
 +  "advanced": true,

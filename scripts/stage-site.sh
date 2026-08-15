@@ -9,8 +9,8 @@ quake_web="${work_root}/openq4/build/web"
 prey_web="${work_root}/prey2006/output/emscripten"
 site="${repo_root}/build/site"
 
-test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.6"
-test "$(git -C "${framework_dir}" rev-parse HEAD)" = "e617f090deaa294dacd033afa52c09f811a3e690"
+test "$(node -p "require('${framework_dir}/package.json').version")" = "0.9.1"
+test "$(git -C "${framework_dir}" rev-parse HEAD)" = "68bfbd1dbc0104084c7760e486b7437d4c7bb90e"
 for required in \
   "${doom_web}/dhewm3-base.js" "${doom_web}/dhewm3-base.wasm" \
   "${doom_web}/dhewm3-roe.js" "${doom_web}/dhewm3-roe.wasm" \
@@ -86,6 +86,7 @@ for wasm in \
   "${site}/prey06.wasm"; do
   test "$(od -An -tx1 -N4 "${wasm}" | tr -d ' \n')" = "0061736d"
 done
+node "${repo_root}/scripts/test-wasm-memory.mjs" "${site}"
 test "$(md5sum "${site}/baseoq4/pak0.pk4" | awk '{print $1}')" = "17550cb028326cdf1cee440bc5d73d74"
 test "$(md5sum "${site}/baseoq4/pak1.pk4" | awk '{print $1}')" = "c3434e1d28bebdc367d6e50f3b1fda3a"
 test "$(stat -c '%s' "${site}/baseoq4/pak0.pk4")" = "4285437"
@@ -136,6 +137,7 @@ actual_files="$(find "${site}" -type f -printf '%P\n' | sort)"
 test "${actual_files}" = "${expected_files}"
 
 node "${repo_root}/scripts/test-adapter.mjs" "${site}"
+node "${repo_root}/scripts/test-workers.mjs" "${site}"
 node "${framework_dir}/scripts/check-game-package.js" "${site}"
 
 printf 'Staged id Tech 4 family site at %s\n' "${site}"

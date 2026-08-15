@@ -14,14 +14,19 @@ The patches are complete binary-capable diffs from each pinned native upstream c
 
 | Capability | Doom 3 SP/MP + RoE | Quake 4 SP/MP | Prey SP |
 | --- | --- | --- | --- |
-| Canonical framework 0.7.6 shell | Yes | Yes | Yes |
+| Canonical framework 0.9.1 shell | Yes | Yes | Yes |
 | Downstream-authored HTML/CSS/SW/PWA files | None | None | None |
 | Variant-aware PWA metadata and source icon | Yes | Yes | Yes |
 | Remembered launch-fullscreen preference | Yes | Yes | Yes |
 | Responsive dynamic canvas and contained native menu pointer mapping | Yes | Yes | Yes |
+| Framework controller selection translated through native input queues | Yes | Yes | Yes |
+| Framework worker-local persistence restored before native main | Yes | Yes | Yes |
+| Native config/save dirty and high-value flush notifications | Yes | Yes | Yes |
 | Worker `OffscreenCanvas` WebGL 2 creation without DOM access | Yes | Yes | Yes |
+| Retail PK4s remain Blob-backed WORKERFS files instead of whole-heap copies | Yes | Yes | Yes |
 | Exact required-data validation and browser IndexedDB reuse | Yes | Yes | Yes |
 | `/data` inaccessible by direct HTTP request | Yes | Yes | Yes |
+| Optional framework password gate | Yes | Yes | Yes |
 | Suite and locked Docker images | Yes | Yes | Yes |
 | Browser runtime status | Still in development | Still in development | Still in development |
 

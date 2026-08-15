@@ -16,6 +16,8 @@ assert.equal(config.resizeTransition, 'immediate');
 assert.equal(config.pointerWidth, 640);
 assert.equal(config.pointerHeight, 480);
 assert.equal(config.pointerFit, 'contain');
+assert.equal(config.controller.mode, 'wasdMouse');
+assert.equal(config.persistence.root, '/save/{variant}');
 assert.equal(config.dynamicQuality, false, 'an unavailable dynamic controller must not be offered');
 assert.equal(config.fps, false, 'an unavailable FPS policy must not be offered');
 for (const variant of ['doom3', 'roe', 'quake4', 'prey']) assert.equal(config.variants[variant].identity, false);
@@ -26,9 +28,12 @@ for (const [variant, value] of Object.entries(config.variants)) {
   assert.ok(value.pwa?.icons?.length, `${variant} needs variant-aware PWA icons`);
   for (const icon of value.pwa.icons) assert.ok(fs.existsSync(path.join(site, icon.src.slice(1))), `${variant} PWA icon must be staged`);
 }
+assert.equal(new Set(Object.keys(config.variants).map(variant => config.persistence.root.replace('{variant}', variant))).size, 6,
+  'every suite variant needs an isolated persistence mount');
 
 async function exercise(variant) {
   const listeners = new Map();
+  const globalListeners = new Map();
   const canvasListeners = new Map();
   const messages = [];
   const transitions = [];
@@ -51,6 +56,7 @@ async function exercise(variant) {
   }
   const sandbox = {
     console, document, Worker: FakeWorker,
+    addEventListener(type, listener) { globalListeners.set(type, listener); },
     fetch: async source => {
       assert.equal(source, '/wasm-game-data.json');
       return { ok: true, json: async () => dataManifest };
@@ -62,9 +68,11 @@ async function exercise(variant) {
   const adapter = sandbox.WasmGameAdapter;
   const context = {
     variant,
+    config: { ...config, ...config.variants[variant] },
     framework: {
       createOwnerDataSet(policy) { createdPolicy = policy; return policy; }
     },
+    persistence: { namespace: `idtech4-${variant}`, root: `/save/${variant}` },
     shell: { resumeAudio() {}, engineState() { return transitions.at(-1) || 'launcher'; } },
     dataClient: {
       async load(policy, options) {
@@ -97,6 +105,15 @@ async function exercise(variant) {
   assert.ok(start);
   assert.equal(start.variant, variant);
   assert.equal(start.playerName, 'Browser Marine');
+  assert.deepEqual(plain(start.persistence), {
+    namespace: `idtech4-${variant}`,
+    root: `/save/${variant}`,
+    debounceMs: 750,
+    intervalMs: 5000,
+    requestDurability: true,
+    frameworkScript: '/shared-shell/wasm-game-framework.js',
+    frameworkVersion: '0.9.1'
+  });
   assert.equal(start.entries[0].path, createdPolicy.files[0].mountName);
   if (variant === 'prey') {
     assert.match(createdPolicy.files[0].path, /^prey\/base\//, 'Prey container data must use its isolated namespace');
@@ -107,10 +124,46 @@ async function exercise(variant) {
     '+set', 'image_usePrecompressedTextures', '1', '+set', 'r_multiSamples', '4'
   ]);
 
+  document.visibilityState = 'hidden';
+  listeners.get('visibilitychange')();
+  globalListeners.get('pagehide')();
+  assert.ok(messages.filter(message => message.type === 'persist').length >= 2,
+    'visibility and page-exit lifecycle edges must request a worker-local flush');
+
   FakeWorker.instance.onmessage({ data: { type: 'engine-state', state: 'gameplay' } });
   assert.equal(adapter.readEngineState(), 'gameplay');
   assert.equal(adapter.readCaptureIntent(), true);
   assert.equal(transitions.at(-1), 'gameplay');
+
+  const controllerActions = {
+    forward: 1, backward: 0, left: 0, right: 0,
+    lookX: 0.75, lookY: -0.25, jump: 1, crouch: 0, reload: 1,
+    weapon: 0, previousWeapon: 0, nextWeapon: 1, altAttack: 0,
+    attack: 1, scoreboard: 0, menu: 0, sprint: 1, melee: 0
+  };
+  adapter.controllerFrame({ actions: controllerActions, deltaMs: 16.667 });
+  assert.ok(messages.some(message => message.type === 'key' && message.scan === 26 && message.down),
+    'controller forward must enter the native key queue');
+  assert.ok(messages.some(message => message.type === 'key' && message.scan === 44 && message.down),
+    'controller jump must enter the native key queue');
+  assert.ok(messages.some(message => message.type === 'pointer-button' && message.button === 0 && message.down),
+    'controller attack must enter the native pointer queue');
+  assert.ok(messages.some(message => message.type === 'pointer-relative' && message.dx > 0 && message.dy < 0),
+    'controller look must enter the native relative pointer queue');
+  adapter.controllerChanged({ activeIndex: null, selection: 'disabled' });
+  assert.ok(messages.some(message => message.type === 'key' && message.scan === 26 && !message.down),
+    'controller disable/hot-unplug must release held native actions');
+  assert.ok(messages.some(message => message.type === 'pointer-button' && message.button === 0 && !message.down));
+
+  FakeWorker.instance.onmessage({ data: { type: 'engine-state', state: 'menu' } });
+  adapter.controllerFrame({ actions: controllerActions, deltaMs: 16.667 });
+  assert.ok(messages.some(message => message.type === 'key' && message.scan === 82 && message.down),
+    'menu controller movement must use the native arrow-key seam');
+  assert.ok(messages.some(message => message.type === 'key' && message.scan === 40 && message.down),
+    'menu controller accept must use the native Enter seam');
+  adapter.controllerChanged({ activeIndex: null, selection: 'disabled' });
+
+  FakeWorker.instance.onmessage({ data: { type: 'engine-state', state: 'gameplay' } });
 
   adapter.inputCaptureChanged(true);
   const beforeAbsolute = messages.length;
@@ -147,4 +200,4 @@ async function exercise(variant) {
 }
 
 for (const variant of Object.keys(config.variants)) await exercise(variant);
-console.log('id Tech 4 adapter state, identity, input, pointer, resize, profile, and PWA contracts passed');
+console.log('id Tech 4 adapter state, identity, input, controller, persistence, pointer, resize, profile, and PWA contracts passed');
