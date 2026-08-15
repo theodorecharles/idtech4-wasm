@@ -15,7 +15,7 @@ No game data is committed or copied into an image. The container serves the requ
 | Quake 4 multiplayer | Still in development |
 | Prey (2006) single-player | Still in development |
 
-All three native source bases compile to WebAssembly, their source-derived runtime modules are staged, required data is validated and restored in the browser, and WebGL 2 context creation succeeds in an `OffscreenCanvas` worker. The remaining renderer boundary is the desktop OpenGL/ARB program path used by this engine family; it needs a WebGL 2-compatible implementation before gameplay is expected.
+All three native source bases compile to WebAssembly, their source-derived runtime modules are staged, required data is validated and restored in the browser, and WebGL 2 context creation succeeds in an `OffscreenCanvas` worker. The browser builds now replace the main ARB assembly lighting interaction with real GLSL ES 3.0 programs. Static acceptance compiles and links the exact embedded shaders with a headless OpenGL ES 3 driver and verifies that every engine Wasm module imports the real shader compile/link/use API. Runtime gameplay is still in development: special material stages and generated/GPU-posed Quake 4 geometry need additional WebGL 2 paths, and the new renderer has not yet completed a serialized browser gameplay pass.
 
 ## Repository model
 

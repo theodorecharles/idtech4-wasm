@@ -376,6 +376,256 @@ index 14fddb9..64c9ad2 100644
  	// input and sound systems need to be tied to the new window
  	Sys_InitInput();
  	soundSystem->InitHW();
+diff --git a/neo/renderer/draw_arb2.cpp b/neo/renderer/draw_arb2.cpp
+index ba041f9..f135666 100644
+--- a/neo/renderer/draw_arb2.cpp
++++ b/neo/renderer/draw_arb2.cpp
+@@ -31,6 +31,94 @@ If you have questions concerning this license or the applicable additional terms
+ 
+ #include "tr_local.h"
+ 
++#ifdef __EMSCRIPTEN__
++#include <GLES3/gl3.h>
++
++// WebGL 2 has no ARB assembly-program API. This real GLSL ES 3 program is
++// used only by the browser interaction backend; desktop keeps the ARB path.
++typedef struct {
++	GLuint program;
++	GLint modelViewMatrix, projectionMatrix;
++	GLint localLightOrigin, localViewOrigin;
++	GLint lightProjectionS, lightProjectionT, lightProjectionQ, lightFalloffS;
++	GLint bumpMatrixS, bumpMatrixT, diffuseMatrixS, diffuseMatrixT, specularMatrixS, specularMatrixT;
++	GLint colorModulate, colorAdd, diffuseColor, specularColor;
++} preywasmWebGL2Interaction_t;
++
++static preywasmWebGL2Interaction_t preywasmInteraction = {};
++
++static const char *preywasmInteractionVertexShader =
++	"#version 300 es\nprecision highp float;\n"
++	"layout(location=0) in vec3 a_position; layout(location=2) in vec4 a_color;\n"
++	"layout(location=8) in vec2 attr_TexCoord; layout(location=9) in vec3 attr_Tangent;\n"
++	"layout(location=10) in vec3 attr_Bitangent; layout(location=11) in vec3 attr_Normal;\n"
++	"uniform mat4 uModelViewMatrix; uniform mat4 uProjectionMatrix;\n"
++	"uniform vec4 uLocalLightOrigin; uniform vec4 uLocalViewOrigin;\n"
++	"uniform vec4 uLightProjectionS; uniform vec4 uLightProjectionT; uniform vec4 uLightProjectionQ; uniform vec4 uLightFalloffS;\n"
++	"uniform vec4 uBumpMatrixS; uniform vec4 uBumpMatrixT; uniform vec4 uDiffuseMatrixS; uniform vec4 uDiffuseMatrixT;\n"
++	"uniform vec4 uSpecularMatrixS; uniform vec4 uSpecularMatrixT; uniform vec4 uColorModulate; uniform vec4 uColorAdd;\n"
++	"out vec2 vBump; out vec2 vDiffuse; out vec2 vSpecular; out vec3 vProjection; out vec2 vFalloff;\n"
++	"out vec3 vLight; out vec3 vHalf; out vec4 vColor;\n"
++	"vec3 tangentVector(vec3 v){return vec3(dot(attr_Tangent,v),dot(attr_Bitangent,v),dot(attr_Normal,v));}\n"
++	"void main(){vec4 p=vec4(a_position,1.0);vec4 st=vec4(attr_TexCoord,0.0,1.0);\n"
++	"vec3 l=uLocalLightOrigin.xyz-p.xyz;vec3 v=uLocalViewOrigin.xyz-p.xyz;vLight=tangentVector(l);vHalf=tangentVector(normalize(l)+normalize(v));\n"
++	"vBump=vec2(dot(st,uBumpMatrixS),dot(st,uBumpMatrixT));vDiffuse=vec2(dot(st,uDiffuseMatrixS),dot(st,uDiffuseMatrixT));\n"
++	"vSpecular=vec2(dot(st,uSpecularMatrixS),dot(st,uSpecularMatrixT));\n"
++	"vProjection=vec3(dot(p,uLightProjectionS),dot(p,uLightProjectionT),dot(p,uLightProjectionQ));vFalloff=vec2(dot(p,uLightFalloffS),0.5);\n"
++	"vColor=a_color*uColorModulate+uColorAdd;gl_Position=uProjectionMatrix*uModelViewMatrix*p;}\n";
++
++static const char *preywasmInteractionFragmentShader =
++	"#version 300 es\nprecision highp float;\n"
++	"uniform sampler2D uBumpMap; uniform sampler2D uFalloffMap; uniform sampler2D uProjectionMap; uniform sampler2D uDiffuseMap; uniform sampler2D uSpecularMap;\n"
++	"uniform vec4 uDiffuseColor; uniform vec4 uSpecularColor;\n"
++	"in vec2 vBump; in vec2 vDiffuse; in vec2 vSpecular; in vec3 vProjection; in vec2 vFalloff; in vec3 vLight; in vec3 vHalf; in vec4 vColor;\n"
++	"out vec4 fragColor;void main(){vec3 n=texture(uBumpMap,vBump).agb*2.0-1.0;float d=max(dot(normalize(vLight),normalize(n)),0.0);\n"
++	"float s=pow(max(dot(normalize(vHalf),normalize(n)),0.0),16.0);vec3 light=texture(uFalloffMap,vFalloff).rgb*textureProj(uProjectionMap,vProjection).rgb;\n"
++	"vec3 diffuse=texture(uDiffuseMap,vDiffuse).rgb*uDiffuseColor.rgb*d;vec3 specular=texture(uSpecularMap,vSpecular).rgb*uSpecularColor.rgb*s;\n"
++	"fragColor=vec4((diffuse+specular)*light*vColor.rgb,0.0);}\n";
++
++static bool PreyWASM_CompileShader( GLenum type, const char *source, GLuint &shader ) {
++	shader = glCreateShader( type ); glShaderSource( shader, 1, &source, NULL ); glCompileShader( shader );
++	GLint compiled = GL_FALSE; glGetShaderiv( shader, GL_COMPILE_STATUS, &compiled );
++	if ( compiled == GL_TRUE ) return true;
++	char log[2048]; GLsizei written = 0; glGetShaderInfoLog( shader, sizeof( log ), &written, log );
++	common->Warning( "WebGL2 interaction shader compile failed: %s", written > 0 ? log : "no driver log" );
++	glDeleteShader( shader ); shader = 0; return false;
++}
++
++static bool PreyWASM_InitWebGL2Interaction( void ) {
++	if ( preywasmInteraction.program != 0 ) return true;
++	GLuint vertexShader = 0, fragmentShader = 0;
++	if ( !PreyWASM_CompileShader( GL_VERTEX_SHADER, preywasmInteractionVertexShader, vertexShader ) ||
++		 !PreyWASM_CompileShader( GL_FRAGMENT_SHADER, preywasmInteractionFragmentShader, fragmentShader ) ) {
++		if ( vertexShader != 0 ) glDeleteShader( vertexShader ); return false;
++	}
++	GLuint program = glCreateProgram(); glAttachShader( program, vertexShader ); glAttachShader( program, fragmentShader ); glLinkProgram( program );
++	GLint linked = GL_FALSE; glGetProgramiv( program, GL_LINK_STATUS, &linked );
++	if ( linked != GL_TRUE ) {
++		char log[2048]; GLsizei written = 0; glGetProgramInfoLog( program, sizeof( log ), &written, log );
++		common->Warning( "WebGL2 interaction program link failed: %s", written > 0 ? log : "no driver log" );
++		glDeleteProgram( program ); glDeleteShader( vertexShader ); glDeleteShader( fragmentShader ); return false;
++	}
++	glDeleteShader( vertexShader ); glDeleteShader( fragmentShader ); preywasmInteraction.program = program;
++#define PREYWASM_UNIFORM(field, name) preywasmInteraction.field = glGetUniformLocation( program, name )
++	PREYWASM_UNIFORM( modelViewMatrix, "uModelViewMatrix" ); PREYWASM_UNIFORM( projectionMatrix, "uProjectionMatrix" );
++	PREYWASM_UNIFORM( localLightOrigin, "uLocalLightOrigin" ); PREYWASM_UNIFORM( localViewOrigin, "uLocalViewOrigin" );
++	PREYWASM_UNIFORM( lightProjectionS, "uLightProjectionS" ); PREYWASM_UNIFORM( lightProjectionT, "uLightProjectionT" );
++	PREYWASM_UNIFORM( lightProjectionQ, "uLightProjectionQ" ); PREYWASM_UNIFORM( lightFalloffS, "uLightFalloffS" );
++	PREYWASM_UNIFORM( bumpMatrixS, "uBumpMatrixS" ); PREYWASM_UNIFORM( bumpMatrixT, "uBumpMatrixT" );
++	PREYWASM_UNIFORM( diffuseMatrixS, "uDiffuseMatrixS" ); PREYWASM_UNIFORM( diffuseMatrixT, "uDiffuseMatrixT" );
++	PREYWASM_UNIFORM( specularMatrixS, "uSpecularMatrixS" ); PREYWASM_UNIFORM( specularMatrixT, "uSpecularMatrixT" );
++	PREYWASM_UNIFORM( colorModulate, "uColorModulate" ); PREYWASM_UNIFORM( colorAdd, "uColorAdd" );
++	PREYWASM_UNIFORM( diffuseColor, "uDiffuseColor" ); PREYWASM_UNIFORM( specularColor, "uSpecularColor" );
++#undef PREYWASM_UNIFORM
++	glUseProgram( program ); glUniform1i( glGetUniformLocation( program, "uBumpMap" ), 1 );
++	glUniform1i( glGetUniformLocation( program, "uFalloffMap" ), 2 ); glUniform1i( glGetUniformLocation( program, "uProjectionMap" ), 3 );
++	glUniform1i( glGetUniformLocation( program, "uDiffuseMap" ), 4 ); glUniform1i( glGetUniformLocation( program, "uSpecularMap" ), 5 ); glUseProgram( 0 );
++	common->Printf( "WebGL2 GLSL ES interaction program linked successfully\n" ); return true;
++}
++#endif
++
+ /*
+ =========================================================================================
+ 
+@@ -55,6 +143,34 @@ RB_ARB2_DrawInteraction
+ ==================
+ */
+ void	RB_ARB2_DrawInteraction( const drawInteraction_t *din ) {
++#ifdef __EMSCRIPTEN__
++	GLfloat modelView[16], projection[16];
++	qglGetFloatv( GL_MODELVIEW_MATRIX, modelView ); qglGetFloatv( GL_PROJECTION_MATRIX, projection );
++	glUniformMatrix4fv( preywasmInteraction.modelViewMatrix, 1, GL_FALSE, modelView );
++	glUniformMatrix4fv( preywasmInteraction.projectionMatrix, 1, GL_FALSE, projection );
++	glUniform4fv( preywasmInteraction.localLightOrigin, 1, din->localLightOrigin.ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.localViewOrigin, 1, din->localViewOrigin.ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.lightProjectionS, 1, din->lightProjection[0].ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.lightProjectionT, 1, din->lightProjection[1].ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.lightProjectionQ, 1, din->lightProjection[2].ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.lightFalloffS, 1, din->lightProjection[3].ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.bumpMatrixS, 1, din->bumpMatrix[0].ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.bumpMatrixT, 1, din->bumpMatrix[1].ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.diffuseMatrixS, 1, din->diffuseMatrix[0].ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.diffuseMatrixT, 1, din->diffuseMatrix[1].ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.specularMatrixS, 1, din->specularMatrix[0].ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.specularMatrixT, 1, din->specularMatrix[1].ToFloatPtr() );
++	static const float zero[4] = { 0, 0, 0, 0 }, one[4] = { 1, 1, 1, 1 }, negOne[4] = { -1, -1, -1, -1 };
++	const float *modulate = zero, *add = one;
++	if ( din->vertexColor == SVC_MODULATE ) { modulate = one; add = zero; }
++	else if ( din->vertexColor == SVC_INVERSE_MODULATE ) { modulate = negOne; add = one; }
++	glUniform4fv( preywasmInteraction.colorModulate, 1, modulate ); glUniform4fv( preywasmInteraction.colorAdd, 1, add );
++	glUniform4fv( preywasmInteraction.diffuseColor, 1, din->diffuseColor.ToFloatPtr() );
++	glUniform4fv( preywasmInteraction.specularColor, 1, din->specularColor.ToFloatPtr() );
++	GL_SelectTextureNoClient( 1 ); din->bumpImage->Bind(); GL_SelectTextureNoClient( 2 ); din->lightFalloffImage->Bind();
++	GL_SelectTextureNoClient( 3 ); din->lightImage->Bind(); GL_SelectTextureNoClient( 4 ); din->diffuseImage->Bind();
++	GL_SelectTextureNoClient( 5 ); din->specularImage->Bind(); RB_DrawElementsWithCounters( din->surf->geo ); return;
++#else
+ 	// load all the vertex program parameters
+ 	qglProgramEnvParameter4fvARB( GL_VERTEX_PROGRAM_ARB, PP_LIGHT_ORIGIN, din->localLightOrigin.ToFloatPtr() );
+ 	qglProgramEnvParameter4fvARB( GL_VERTEX_PROGRAM_ARB, PP_VIEW_ORIGIN, din->localViewOrigin.ToFloatPtr() );
+@@ -138,6 +254,7 @@ void	RB_ARB2_DrawInteraction( const drawInteraction_t *din ) {
+ 
+ 	// draw it
+ 	RB_DrawElementsWithCounters( din->surf->geo );
++#endif
+ }
+ 
+ 
+@@ -156,11 +273,16 @@ void RB_ARB2_CreateDrawInteractions( const drawSurf_t *surf ) {
+ 	GL_State( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE | GLS_DEPTHMASK | backEnd.depthFunc );
+ 
+ 	// bind the vertex program
++#ifdef __EMSCRIPTEN__
++	if ( !PreyWASM_InitWebGL2Interaction() ) common->Error( "WebGL2 interaction program is unavailable" );
++	glUseProgram( preywasmInteraction.program );
++#else
+ 	qglBindProgramARB( GL_VERTEX_PROGRAM_ARB, VPROG_INTERACTION );
+ 	qglBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, FPROG_INTERACTION );
+ 
+ 	qglEnable(GL_VERTEX_PROGRAM_ARB);
+ 	qglEnable(GL_FRAGMENT_PROGRAM_ARB);
++#endif
+ 
+ 	// enable the vertex arrays
+ 	qglEnableVertexAttribArrayARB( 8 );
+@@ -170,6 +292,7 @@ void RB_ARB2_CreateDrawInteractions( const drawSurf_t *surf ) {
+ 	qglEnableClientState( GL_COLOR_ARRAY );
+ 
+ 	// texture 0 is the normalization cube map for the vector towards the light
++#ifndef __EMSCRIPTEN__
+ 	GL_SelectTextureNoClient( 0 );
+ 	if ( backEnd.vLight->lightShader->IsAmbientLight() ) {
+ 		globalImages->ambientNormalMap->Bind();
+@@ -180,6 +303,7 @@ void RB_ARB2_CreateDrawInteractions( const drawSurf_t *surf ) {
+ 	// texture 6 is the specular lookup table
+ 	GL_SelectTextureNoClient( 6 );
+ 	globalImages->specularTableImage->Bind();
++#endif
+ 
+ 	for ( ; surf ; surf=surf->nextOnLight ) {
+ 		// perform setup here that will not change over multiple interaction passes
+@@ -205,8 +329,9 @@ void RB_ARB2_CreateDrawInteractions( const drawSurf_t *surf ) {
+ 	qglDisableClientState( GL_COLOR_ARRAY );
+ 
+ 	// disable features
+-	GL_SelectTextureNoClient( 6 );
+-	globalImages->BindNull();
++#ifndef __EMSCRIPTEN__
++	GL_SelectTextureNoClient( 6 ); globalImages->BindNull();
++#endif
+ 
+ 	GL_SelectTextureNoClient( 5 );
+ 	globalImages->BindNull();
+@@ -226,8 +351,11 @@ void RB_ARB2_CreateDrawInteractions( const drawSurf_t *surf ) {
+ 	backEnd.glState.currenttmu = -1;
+ 	GL_SelectTexture( 0 );
+ 
+-	qglDisable(GL_VERTEX_PROGRAM_ARB);
+-	qglDisable(GL_FRAGMENT_PROGRAM_ARB);
++#ifdef __EMSCRIPTEN__
++	glUseProgram( 0 );
++#else
++	qglDisable(GL_VERTEX_PROGRAM_ARB); qglDisable(GL_FRAGMENT_PROGRAM_ARB);
++#endif
+ }
+ 
+ 
+@@ -278,6 +406,7 @@ void RB_ARB2_DrawInteractions( void ) {
+ 			qglStencilFunc( GL_ALWAYS, 128, 255 );
+ 		}
+ 
++#ifndef __EMSCRIPTEN__
+ 		if ( r_useShadowVertexProgram.GetBool() ) {
+ 			qglEnable( GL_VERTEX_PROGRAM_ARB );
+ 			qglBindProgramARB( GL_VERTEX_PROGRAM_ARB, VPROG_STENCIL_SHADOW );
+@@ -288,7 +417,9 @@ void RB_ARB2_DrawInteractions( void ) {
+ 			RB_StencilShadowPass( vLight->localShadows );
+ 			RB_ARB2_CreateDrawInteractions( vLight->globalInteractions );
+ 			qglDisable( GL_VERTEX_PROGRAM_ARB );	// if there weren't any globalInteractions, it would have stayed on
+-		} else {
++		} else
++#endif
++		{
+ 			RB_StencilShadowPass( vLight->globalShadows );
+ 			RB_ARB2_CreateDrawInteractions( vLight->localInteractions );
+ 			RB_StencilShadowPass( vLight->localShadows );
+@@ -636,12 +767,19 @@ R_ReloadARBPrograms_f
+ ==================
+ */
+ void R_ReloadARBPrograms_f( const idCmdArgs &args ) {
++#ifndef __EMSCRIPTEN__
+ 	int		i;
++#endif
+ 
+ 	common->Printf( "----- R_ReloadARBPrograms -----\n" );
++#ifdef __EMSCRIPTEN__
++	if ( !PreyWASM_InitWebGL2Interaction() ) common->Error( "WebGL2 GLSL ES interaction program failed readiness validation" );
++	common->Printf( "WebGL2 uses GLSL ES programs; desktop ARB assembly upload skipped\n" );
++#else
+ 	for ( i = 0 ; progs[i].name[0] ; i++ ) {
+ 		R_LoadARBProgram( i );
+ 	}
++#endif
+ }
+ 
+ /*
+@@ -653,6 +791,9 @@ void R_ARB2_Init( void ) {
+ 	common->Printf( "ARB2 renderer: " );
+ 
+ 	if ( !glConfig.ARBVertexProgramAvailable || !glConfig.ARBFragmentProgramAvailable ) {
++#ifdef __EMSCRIPTEN__
++		if ( PreyWASM_InitWebGL2Interaction() ) { common->Printf( "WebGL2 GLSL ES path available.\n" ); return; }
++#endif
+ 		common->Printf( "Not available.\n" );
+ 		return;
+ 	}
 diff --git a/neo/sound/snd_efxfile.cpp b/neo/sound/snd_efxfile.cpp
 index f4d9cbd..3c33b91 100644
 --- a/neo/sound/snd_efxfile.cpp

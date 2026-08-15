@@ -87,6 +87,7 @@ for wasm in \
   test "$(od -An -tx1 -N4 "${wasm}" | tr -d ' \n')" = "0061736d"
 done
 node "${repo_root}/scripts/test-wasm-memory.mjs" "${site}"
+node "${repo_root}/scripts/test-renderer-artifacts.mjs"
 test "$(md5sum "${site}/baseoq4/pak0.pk4" | awk '{print $1}')" = "17550cb028326cdf1cee440bc5d73d74"
 test "$(md5sum "${site}/baseoq4/pak1.pk4" | awk '{print $1}')" = "c3434e1d28bebdc367d6e50f3b1fda3a"
 test "$(stat -c '%s' "${site}/baseoq4/pak0.pk4")" = "4285437"
