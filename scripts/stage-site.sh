@@ -8,8 +8,8 @@ doom_web="${work_root}/dhewm3/build/web"
 quake_web="${work_root}/openq4/build/web"
 site="${repo_root}/build/site"
 
-test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.3"
-test "$(git -C "${framework_dir}" rev-parse HEAD)" = "be0b81301c5f12f09e445a3bc765b7709603265e"
+test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.5"
+test "$(git -C "${framework_dir}" rev-parse HEAD)" = "11b9af479e40927336d18f5ddfc41d9cc2b224c7"
 for required in \
   "${doom_web}/dhewm3-base.js" "${doom_web}/dhewm3-base.wasm" \
   "${doom_web}/dhewm3-roe.js" "${doom_web}/dhewm3-roe.wasm" \
@@ -40,8 +40,8 @@ for artifact in game-sp_wasm32.wasm game-mp_wasm32.wasm mod.json pak0.pk4 pak1.p
 done
 
 node "${repo_root}/scripts/merge-data-manifests.mjs" \
-  "${doom_web}/wasm-game-data.json" \
-  "${quake_web}/wasm-game-data.json" \
+  "${work_root}/dhewm3/web/wasm-game-data.json" \
+  "${work_root}/openq4/docker/wasm-game-data.json" \
   "${site}/wasm-game-data.json"
 
 install -m 0644 "${work_root}/dhewm3/COPYING.txt" "${site}/DHEWM3-COPYING.txt"
@@ -62,6 +62,12 @@ node --check "${site}/dhewm3-roe.js"
 node --check "${site}/openQ4-client_wasm32.js"
 node -e 'for (const path of process.argv.slice(1)) JSON.parse(fs.readFileSync(path, "utf8"))' \
   "${site}/wasm-game.json" "${site}/wasm-game-data.json" "${site}/baseoq4/mod.json"
+node -e '
+  const data = JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"));
+  for (const [variant, policy] of Object.entries(data.variants || {})) {
+    if (policy.validator !== false) throw new Error(`${variant}: exact hash policy must declare validator:false`);
+  }
+' "${site}/wasm-game-data.json"
 for wasm in \
   "${site}/dhewm3-base.wasm" "${site}/dhewm3-roe.wasm" \
   "${site}/openQ4-client_wasm32.wasm" \

@@ -1,8 +1,8 @@
 {
   "framework": {
     "url": "https://github.com/theodorecharles/wasm-game-framework.git",
-    "commit": "be0b81301c5f12f09e445a3bc765b7709603265e",
-    "version": "0.7.3"
+    "commit": "11b9af479e40927336d18f5ddfc41d9cc2b224c7",
+    "version": "0.7.5"
   },
   "buildTools": {
     "meson": "1.8.3"

@@ -45,13 +45,13 @@ index f174fc5..55bf8ca 100644
 +*.PK4
 diff --git a/Dockerfile b/Dockerfile
 new file mode 100644
-index 0000000..d2b007a
+index 0000000..aba9eb5
 --- /dev/null
 +++ b/Dockerfile
 @@ -0,0 +1,27 @@
 +# syntax=docker/dockerfile:1.7
 +
-+ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.3
++ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.5
 +FROM ${FRAMEWORK_IMAGE}
 +
 +ARG VCS_REF=unknown
@@ -78,7 +78,7 @@ index 0000000..d2b007a
 +  CMD wget -q -O - http://127.0.0.1:8088/ >/dev/null
 diff --git a/RUNBOOK.md b/RUNBOOK.md
 new file mode 100644
-index 0000000..cb79b01
+index 0000000..5c25799
 --- /dev/null
 +++ b/RUNBOOK.md
 @@ -0,0 +1,101 @@
@@ -101,8 +101,8 @@ index 0000000..cb79b01
 +
 +## Canonical browser contract
 +
-+The repository pins `wasm-game-framework` 0.7.3 at public commit
-+`be0b81301c5f12f09e445a3bc765b7709603265e`.
++The repository pins `wasm-game-framework` 0.7.5 at public commit
++`11b9af479e40927336d18f5ddfc41d9cc2b224c7`.
 +
 +Downstream owns only:
 +
@@ -152,7 +152,7 @@ index 0000000..cb79b01
 +
 +The build creates two native-source Emscripten clients (`base` and `roe`) and
 +four framework images (suite, Doom 3 SP, Doom 3 MP, RoE). The suite and locked
-+0.7.3 images pass HTTP bootstrap/metadata, WASM range, and `/data` isolation
++0.7.5 images pass HTTP bootstrap/metadata, WASM range, and `/data` isolation
 +checks.
 +
 +## Verified browser boundary (2026-08-14)
@@ -1162,7 +1162,7 @@ index 0000000..64356a8
 +echo "Built Doom 3 suite plus doom3, doom3-mp, and roe locked images."
 diff --git a/scripts/build-web.sh b/scripts/build-web.sh
 new file mode 100755
-index 0000000..45075e6
+index 0000000..bdde970
 --- /dev/null
 +++ b/scripts/build-web.sh
 @@ -0,0 +1,80 @@
@@ -1178,8 +1178,8 @@ index 0000000..45075e6
 +framework_dir="${D3WASM_FRAMEWORK_DIR:-${repo_root}/../wasm-game-framework}"
 +
 +framework_version="$(node -p "require('${framework_dir}/package.json').version")"
-+if [[ "${framework_version}" != "0.7.3" ]]; then
-+	echo "doom3-wasm requires wasm-game-framework 0.7.3, found ${framework_version}." >&2
++if [[ "${framework_version}" != "0.7.5" ]]; then
++	echo "doom3-wasm requires wasm-game-framework 0.7.5, found ${framework_version}." >&2
 +	exit 1
 +fi
 +
@@ -1551,13 +1551,14 @@ index 0000000..5282c54
 +})();
 diff --git a/web/wasm-game-data.json b/web/wasm-game-data.json
 new file mode 100644
-index 0000000..fd1feee
+index 0000000..64aad18
 --- /dev/null
 +++ b/web/wasm-game-data.json
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,48 @@
 +{
 +  "namespace": "doom3-suite",
 +  "version": "steam-1.3.1-sha256-v1",
++  "validator": false,
 +  "variants": {
 +    "doom3": {
 +      "files": [

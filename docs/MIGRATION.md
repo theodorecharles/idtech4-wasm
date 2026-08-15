@@ -13,7 +13,7 @@ The patches are complete binary-capable diffs from each pinned native upstream c
 
 | Capability | Doom 3 SP/MP + RoE | Quake 4 SP/MP |
 | --- | --- | --- |
-| Canonical framework 0.7.3 shell | Yes | Yes |
+| Canonical framework 0.7.5 shell | Yes | Yes |
 | Downstream-authored HTML/CSS/SW/PWA files | None | None |
 | Variant-aware PWA metadata and authentic icon | Yes | Yes |
 | Remembered launch-fullscreen preference | Yes | Yes |
