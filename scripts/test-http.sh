@@ -26,7 +26,7 @@ for variant in suite doom3 doom3-mp roe quake4 quake4-mp prey; do
   curl -fsS "${base_url}/wasm-game.json" | node -e '
     const config = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
     if (config.fullscreen !== true) throw new Error("fullscreen capability must remain enabled");
-    if (config.controller?.mode !== "wasdMouse") throw new Error("controller policy is missing");
+    if (JSON.stringify(config.controller) !== JSON.stringify({ mode: "disabled" })) throw new Error("controller discovery must be disabled");
     if (config.persistence?.root !== "/save/{variant}") throw new Error("variant persistence policy is missing");
     const descriptions = [config.description, ...Object.values(config.variants || {}).flatMap(value => [value.description, value.pwa?.description])].filter(Boolean);
     const forbidden = /\b(owner|registered|files?|storage|cache|provenance|legal|license)\b/i;

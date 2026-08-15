@@ -16,7 +16,8 @@ assert.equal(config.resizeTransition, 'immediate');
 assert.equal(config.pointerWidth, 640);
 assert.equal(config.pointerHeight, 480);
 assert.equal(config.pointerFit, 'contain');
-assert.equal(config.controller.mode, 'wasdMouse');
+assert.deepEqual(config.controller, { mode: 'disabled' },
+  'controller discovery and launcher controls must remain disabled');
 assert.equal(config.persistence.root, '/save/{variant}');
 assert.equal(config.dynamicQuality, false, 'an unavailable dynamic controller must not be offered');
 assert.equal(config.fps, false, 'an unavailable FPS policy must not be offered');
@@ -200,4 +201,4 @@ async function exercise(variant) {
 }
 
 for (const variant of Object.keys(config.variants)) await exercise(variant);
-console.log('id Tech 4 adapter state, identity, input, controller, persistence, pointer, resize, profile, and PWA contracts passed');
+console.log('id Tech 4 adapter state, identity, input, disabled-controller, persistence, pointer, resize, profile, and PWA contracts passed');

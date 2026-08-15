@@ -19,7 +19,7 @@ The patches are complete binary-capable diffs from each pinned native upstream c
 | Variant-aware PWA metadata and source icon | Yes | Yes | Yes |
 | Remembered launch-fullscreen preference | Yes | Yes | Yes |
 | Responsive dynamic canvas and contained native menu pointer mapping | Yes | Yes | Yes |
-| Framework controller selection translated through native input queues | Yes | Yes | Yes |
+| Launcher controller discovery and configuration | Disabled | Disabled | Disabled |
 | Framework worker-local persistence restored before native main | Yes | Yes | Yes |
 | Native config/save dirty and high-value flush notifications | Yes | Yes | Yes |
 | Worker `OffscreenCanvas` WebGL 2 creation without DOM access | Yes | Yes | Yes |
