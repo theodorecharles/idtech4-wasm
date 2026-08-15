@@ -9,8 +9,8 @@ meson="$("${repo_root}/scripts/ensure-build-tools.sh")"
 
 "${repo_root}/scripts/apply-patches.sh"
 
-test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.5"
-test "$(git -C "${framework_dir}" rev-parse HEAD)" = "11b9af479e40927336d18f5ddfc41d9cc2b224c7"
+test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.6"
+test "$(git -C "${framework_dir}" rev-parse HEAD)" = "e617f090deaa294dacd033afa52c09f811a3e690"
 
 D3WASM_FRAMEWORK_DIR="${framework_dir}" JOBS="${jobs}" \
   "${work_root}/dhewm3/scripts/build-web.sh"
@@ -19,5 +19,21 @@ OPENQ4_GAMELIBS_REPO="${work_root}/openq4-game" \
 OPENQ4_MESON="${meson}" \
 JOBS="${jobs}" \
   "${work_root}/openq4/scripts/build-web.sh"
+
+export EMSDK_QUIET=1
+if ! command -v emcmake >/dev/null 2>&1; then
+  if [[ -n "${EMSDK_DIR:-}" && -f "${EMSDK_DIR}/emsdk_env.sh" ]]; then
+    # shellcheck disable=SC1090
+    source "${EMSDK_DIR}/emsdk_env.sh"
+  else
+    echo "Activate Emscripten or set EMSDK_DIR before building Prey." >&2
+    exit 1
+  fi
+fi
+emcmake cmake -S "${work_root}/prey2006/neo" -B "${work_root}/prey2006/build/web" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DPREYWASM_CLIENT=ON \
+  -DREPRODUCIBLE_BUILD=ON
+cmake --build "${work_root}/prey2006/build/web" --parallel "${jobs}"
 
 "${repo_root}/scripts/stage-site.sh"

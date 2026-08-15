@@ -50,6 +50,10 @@ ensure_checkout \
   "${OPENQ4_GAME_SOURCE_URL:-$(lock_value openq4Game.url)}" \
   "$(lock_value openq4Game.commit)"
 ensure_checkout \
+  prey2006 \
+  "${PREY2006_SOURCE_URL:-$(lock_value prey2006.url)}" \
+  "$(lock_value prey2006.commit)"
+ensure_checkout \
   wasm-game-framework \
   "${WASM_GAME_FRAMEWORK_SOURCE_URL:-$(lock_value framework.url)}" \
   "$(lock_value framework.commit)"

@@ -63,7 +63,7 @@ index 00000000..15b9c712
 @@ -0,0 +1,39 @@
 +# syntax=docker/dockerfile:1.7
 +
-+ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.5
++ARG FRAMEWORK_IMAGE=wasm-game-framework:0.7.6
 +FROM ${FRAMEWORK_IMAGE}
 +
 +ARG VCS_REF=unknown
@@ -124,8 +124,8 @@ index 00000000..b1b613ee
 +
 +## Canonical browser contract
 +
-+The repository pins `wasm-game-framework` 0.7.5 at public commit
-+`11b9af479e40927336d18f5ddfc41d9cc2b224c7`.
++The repository pins `wasm-game-framework` 0.7.6 at public commit
++`e617f090deaa294dacd033afa52c09f811a3e690`.
 +
 +Downstream owns only:
 +
@@ -35027,8 +35027,8 @@ index 00000000..df79ae2e
 +framework_dir="${Q4WASM_FRAMEWORK_DIR:-${repo_root}/../wasm-game-framework}"
 +
 +framework_version="$(node -p "require('${framework_dir}/package.json').version")"
-+if [[ "${framework_version}" != "0.7.5" ]]; then
-+	echo "quake4-wasm requires wasm-game-framework 0.7.5, found ${framework_version}." >&2
++if [[ "${framework_version}" != "0.7.6" ]]; then
++	echo "quake4-wasm requires wasm-game-framework 0.7.6, found ${framework_version}." >&2
 +	exit 1
 +fi
 +

@@ -2,23 +2,23 @@
 
 ## Purpose
 
-Maintain one repeatable, retail-free id Tech 4 browser pipeline for Doom 3 SP/MP, Resurrection of Evil, and Quake 4 SP/MP. Keep the engine work at this family layer and let `wasm-game-framework` own the page shell, data provisioning, IndexedDB cache, identity/quality/fullscreen preferences, responsive canvas, input-capture lifecycle, PWA generation, service worker, and static container server.
+Maintain one repeatable id Tech 4 browser pipeline for Doom 3 SP/MP, Resurrection of Evil, Quake 4 SP/MP, and Prey (2006) SP. Keep the engine work at this family layer and let `wasm-game-framework` own the page shell, data provisioning, IndexedDB cache, identity/quality/fullscreen preferences, responsive canvas, input-capture lifecycle, PWA generation, service worker, and static container server.
 
 Do not submit anything upstream. All work is local downstream work and all generated source checkouts have a disabled push URL.
 
 ## Exact inputs
 
-`source-lock.json` is authoritative. A build must stop if the framework is not version `0.7.5` at commit `11b9af479e40927336d18f5ddfc41d9cc2b224c7`. It must also stop if a native checkout or patch checksum differs from the lock.
+`source-lock.json` is authoritative. A build must stop if the framework is not version `0.7.6` at commit `e617f090deaa294dacd033afa52c09f811a3e690`. It must also stop if a native checkout or patch checksum differs from the lock.
 
 The family repository stores neither complete source forks nor retail content. It reconstructs the browser ports by checking out exact native commits, verifying `patches/SHA256SUMS`, and applying the committed patch queues in `.work/`.
 
 ## Build flow
 
-1. `scripts/fetch-sources.sh` creates detached dhewm3, openQ4, and openQ4-game checkouts and disables their push URLs.
-2. `scripts/apply-patches.sh` verifies and applies the two browser patch queues idempotently.
+1. `scripts/fetch-sources.sh` creates detached dhewm3, openQ4, openQ4-game, and Prey2006 checkouts and disables their push URLs.
+2. `scripts/apply-patches.sh` verifies and applies the three browser patch queues idempotently.
 3. `scripts/build-all.sh` invokes the native Emscripten builds using the exact framework checkout.
-4. `scripts/stage-site.sh` combines the engine artifacts, authentic source-licensed icons/background, exact owner-data manifests, licenses, and framework metadata. It asserts that no downstream HTML, CSS, web manifest, or service worker exists.
-5. `scripts/build-docker.sh` builds the suite image and five locked variants.
+4. `scripts/stage-site.sh` combines the engine artifacts, source-derived icons/background, exact data manifests, notices, and framework metadata. It asserts that no downstream HTML, CSS, web manifest, or service worker exists.
+5. `scripts/build-docker.sh` builds the suite image and six locked variants.
 6. `scripts/test-http.sh` checks all images, framework metadata, canonical bootstrap, WASM and PK4 range responses, and the `/data` denial contract.
 
 ## Data and security contract
@@ -47,8 +47,9 @@ The openQ4 build must create both source-derived packages under `baseoq4`:
 | Resurrection of Evil | Still in development |
 | Quake 4 | Still in development |
 | Quake 4 multiplayer | Still in development |
+| Prey (2006) | Still in development |
 
-Verified browser progress includes owner PK4 restoration, worker startup, a direct WebGL 2 `OffscreenCanvas` context, filesystem initialization, source game-module loading, declarations, configuration, input bridge, and renderer capability probing. The current shared blocker is the desktop OpenGL/ARB program renderer path. Continue by implementing that renderer boundary in native source behind `__EMSCRIPTEN__`; do not fork the framework or add a main-thread DOM workaround.
+Verified browser progress includes PK4 restoration, worker startup, a direct WebGL 2 `OffscreenCanvas` context, filesystem initialization, source game-module loading, declarations, configuration, input bridge, and renderer capability probing. Prey compiles and links 459 native translation units into a 6.6 MB WASM module with its gamecode hardlinked. In the serialized Chrome smoke, all 13 PK4s loaded, the WebGL 2 context became current, ARB2 reported available, and startup then stopped at `R_ReloadARBPrograms`; a reload reached native main and the first cached PK4 in about eight seconds. The current shared blocker is the desktop OpenGL/ARB program renderer path. Continue by implementing that renderer boundary in native source behind `__EMSCRIPTEN__`; do not fork the framework or add a main-thread DOM workaround.
 
 ## Browser verification discipline
 
@@ -60,7 +61,7 @@ Browser testing is serialized across the larger WASM workspace. Obtain the coord
 - Put browser-only native changes behind `__EMSCRIPTEN__` where appropriate.
 - Update a patch queue and `patches/SHA256SUMS` together.
 - Keep manifest paths, sizes, and digests exact and variant-aware.
-- Use only source-licensed authentic visual assets.
+- Use source-derived title visual assets.
 - Build suite and every locked variant.
 - Run static syntax, package integrity, HTTP range, and `/data` isolation tests.
 - Use only `Live` or `Still in development` for title status.

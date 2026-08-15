@@ -2,7 +2,7 @@
   "id": "idtech4",
   "kicker": "id Tech 4",
   "defaultVariant": "doom3",
-  "description": "Doom 3, Resurrection of Evil, and Quake 4 in the browser.",
+  "description": "Doom 3, Resurrection of Evil, Quake 4, and Prey in the browser.",
   "displayMode": "dynamic",
   "nativeManaged": true,
   "syncBackbuffer": false,
@@ -126,6 +126,25 @@
         "backgroundColor": "#000000",
         "icons": [
           { "src": "/quake4-pwa.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+        ]
+      }
+    },
+    "prey": {
+      "title": "Prey (2006)",
+      "description": "Still in development — the Prey browser renderer is not yet complete.",
+      "loadingTitle": "Starting Prey…",
+      "identity": false,
+      "defaultPlayerName": "Tommy",
+      "icon": "/prey.ico",
+      "pwa": {
+        "id": "/?variant=prey",
+        "name": "Prey (2006)",
+        "shortName": "Prey",
+        "description": "Still in development — Prey browser renderer work is ongoing.",
+        "themeColor": "#8d2418",
+        "backgroundColor": "#000000",
+        "icons": [
+          { "src": "/prey-256.png", "sizes": "256x256", "type": "image/png", "purpose": "any maskable" }
         ]
       }
     }

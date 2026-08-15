@@ -8,8 +8,8 @@ framework_dir="${WASM_GAME_FRAMEWORK_DIR:-${work_root}/wasm-game-framework}"
 image_repo="${IMAGE_REPO:-theodorecharles/idtech4-wasm}"
 image_tag="${IMAGE_TAG:-dev}"
 
-test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.5"
-test "$(git -C "${framework_dir}" rev-parse HEAD)" = "11b9af479e40927336d18f5ddfc41d9cc2b224c7"
+test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.6"
+test "$(git -C "${framework_dir}" rev-parse HEAD)" = "e617f090deaa294dacd033afa52c09f811a3e690"
 test "$(md5sum "${site}/baseoq4/pak0.pk4" | awk '{print $1}')" = "17550cb028326cdf1cee440bc5d73d74"
 test "$(md5sum "${site}/baseoq4/pak1.pk4" | awk '{print $1}')" = "c3434e1d28bebdc367d6e50f3b1fda3a"
 test "$(stat -c '%s' "${site}/baseoq4/pak0.pk4")" = "4285437"
@@ -24,10 +24,10 @@ if [[ -n "${unexpected_package}" ]]; then
   exit 1
 fi
 
-framework_image="wasm-game-framework:0.7.5"
+framework_image="wasm-game-framework:0.7.6"
 "${framework_dir}/scripts/build-base-image.sh" "${framework_image}"
 
-for variant in suite doom3 doom3-mp roe quake4 quake4-mp; do
+for variant in suite doom3 doom3-mp roe quake4 quake4-mp prey; do
   if [[ "${variant}" == suite ]]; then
     image="${image_repo}:${image_tag}"
   else
@@ -36,4 +36,4 @@ for variant in suite doom3 doom3-mp roe quake4 quake4-mp; do
   WASM_GAME_FRAMEWORK_IMAGE="${framework_image}" \
     "${framework_dir}/scripts/build-static-image.sh" "${site}" "${image}" "${variant}"
 done
-printf 'Built id Tech 4 suite and five locked images.\n'
+printf 'Built id Tech 4 suite and six locked images.\n'

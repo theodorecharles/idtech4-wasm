@@ -1,8 +1,8 @@
 {
   "framework": {
     "url": "https://github.com/theodorecharles/wasm-game-framework.git",
-    "commit": "11b9af479e40927336d18f5ddfc41d9cc2b224c7",
-    "version": "0.7.5"
+    "commit": "e617f090deaa294dacd033afa52c09f811a3e690",
+    "version": "0.7.6"
   },
   "buildTools": {
     "meson": "1.8.3"
@@ -22,5 +22,10 @@
   "openq4Game": {
     "url": "https://github.com/themuffinator/openQ4-game.git",
     "commit": "0c9c121ff337b1c6df129ecedcfe569e7c50c332"
+  },
+  "prey2006": {
+    "url": "https://github.com/FriskTheFallenHuman/Prey2006.git",
+    "commit": "5a55c48254e0d847fae533d62a5cf9623999ec04",
+    "patch": "patches/prey2006-browser.patch"
   }
 }

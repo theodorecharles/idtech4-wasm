@@ -18,7 +18,7 @@ assert.equal(config.pointerHeight, 480);
 assert.equal(config.pointerFit, 'contain');
 assert.equal(config.dynamicQuality, false, 'an unavailable dynamic controller must not be offered');
 assert.equal(config.fps, false, 'an unavailable FPS policy must not be offered');
-for (const variant of ['doom3', 'roe', 'quake4']) assert.equal(config.variants[variant].identity, false);
+for (const variant of ['doom3', 'roe', 'quake4', 'prey']) assert.equal(config.variants[variant].identity, false);
 for (const variant of ['doom3-mp', 'quake4-mp']) assert.equal(config.variants[variant].identity, true);
 for (const [variant, value] of Object.entries(config.variants)) {
   assert.match(value.description, /^Still in development/);
@@ -72,7 +72,7 @@ async function exercise(variant) {
         options.onProgress({ phase: 'checking-cache', key: policy.files[0].key });
         options.onProgress({ phase: 'downloading', key: policy.files[0].key, received: 1, total: 2 });
         options.onProgress({ phase: 'restored', key: policy.files[0].key });
-        return { entries: policy.files.map(file => ({ cached: true, file: {}, policy: { path: file.mountName } })) };
+        return { entries: policy.files.map(file => ({ cached: true, file: {}, policy: { path: file.path, mountName: file.mountName } })) };
       }
     },
     elements: { canvas },
@@ -84,17 +84,24 @@ async function exercise(variant) {
 
   await adapter.init(context);
   assert.equal(adapter.readEngineState(), 'menu');
+  assert.equal(adapter.readCaptureIntent(), false);
   assert.equal(createdPolicy.namespace, dataManifest.variants[variant].namespace || dataManifest.namespace);
   await adapter.start(context);
   assert.equal(loadedPolicy, createdPolicy);
   FakeWorker.instance.onmessage({ data: { type: 'status', text: 'Mounting owner data from cache' } });
   assert.doesNotMatch(loading.flat().join('\n'), /files?|data|cache|container|browser|mount|verif|directory|folder|path|module|engine/i,
     'normal loading copy must remain title-focused');
-  assert.equal(FakeWorker.instance.source, variant.startsWith('quake4') ? '/q4-worker.js' : '/d3-worker.js');
+  const expectedWorker = variant.startsWith('quake4') ? '/q4-worker.js' : variant === 'prey' ? '/prey-worker.js' : '/d3-worker.js';
+  assert.equal(FakeWorker.instance.source, expectedWorker);
   const start = messages.find(message => message.type === 'start');
   assert.ok(start);
   assert.equal(start.variant, variant);
   assert.equal(start.playerName, 'Browser Marine');
+  assert.equal(start.entries[0].path, createdPolicy.files[0].mountName);
+  if (variant === 'prey') {
+    assert.match(createdPolicy.files[0].path, /^prey\/base\//, 'Prey container data must use its isolated namespace');
+    assert.match(start.entries[0].path, /^base\//, 'Prey files must mount at the engine-visible base path');
+  }
   assert.deepEqual(Array.from(start.engineArguments), [
     '+set', 'com_machineSpec', '3', '+set', 'image_useCompression', '0',
     '+set', 'image_usePrecompressedTextures', '1', '+set', 'r_multiSamples', '4'
@@ -102,6 +109,7 @@ async function exercise(variant) {
 
   FakeWorker.instance.onmessage({ data: { type: 'engine-state', state: 'gameplay' } });
   assert.equal(adapter.readEngineState(), 'gameplay');
+  assert.equal(adapter.readCaptureIntent(), true);
   assert.equal(transitions.at(-1), 'gameplay');
 
   adapter.inputCaptureChanged(true);

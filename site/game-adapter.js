@@ -27,7 +27,8 @@
     'doom3-mp': { worker: '/d3-worker.js', label: 'Doom 3 multiplayer' },
     roe: { worker: '/d3-worker.js', label: 'Resurrection of Evil' },
     quake4: { worker: '/q4-worker.js', label: 'Quake 4' },
-    'quake4-mp': { worker: '/q4-worker.js', label: 'Quake 4 multiplayer' }
+    'quake4-mp': { worker: '/q4-worker.js', label: 'Quake 4 multiplayer' },
+    prey: { worker: '/prey-worker.js', label: 'Prey' }
   });
 
   let worker = null;
@@ -92,7 +93,7 @@
       ownerData = ctx.framework.createOwnerDataSet({
         namespace: policy.namespace,
         version: policy.version,
-        files: policy.files.map(spec => ({ ...spec, mountName: spec.path, validateCached: false }))
+        files: policy.files.map(spec => ({ ...spec, mountName: spec.mountName || spec.path, validateCached: false }))
       });
       ctx.elements.canvas.id = 'canvas';
       ctx.elements.canvas.addEventListener('contextmenu', event => event.preventDefault());
@@ -146,13 +147,14 @@
       started = true;
       worker.postMessage({
         type: 'start', canvas: offscreen, variant: ctx.variant,
-        entries: data.entries.map(entry => ({ path: entry.policy.path, file: entry.file })),
+        entries: data.entries.map(entry => ({ path: entry.policy.mountName || entry.policy.path, file: entry.file })),
         width, height, playerName: preferences.playerName,
         engineArguments: profileArguments[preferences.qualityProfile] || profileArguments.high
       }, [offscreen]);
     },
 
     readEngineState() { return state; },
+    readCaptureIntent() { return state === 'gameplay'; },
     resize(detail) {
       lastResize = detail;
       if (started) post({ type: 'resize', width: detail.requestedWidth, height: detail.requestedHeight });

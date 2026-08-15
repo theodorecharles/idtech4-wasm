@@ -6,16 +6,18 @@ work_root="${IDTECH4_WORK_ROOT:-${repo_root}/.work}"
 framework_dir="${WASM_GAME_FRAMEWORK_DIR:-${work_root}/wasm-game-framework}"
 doom_web="${work_root}/dhewm3/build/web"
 quake_web="${work_root}/openq4/build/web"
+prey_web="${work_root}/prey2006/output/emscripten"
 site="${repo_root}/build/site"
 
-test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.5"
-test "$(git -C "${framework_dir}" rev-parse HEAD)" = "11b9af479e40927336d18f5ddfc41d9cc2b224c7"
+test "$(node -p "require('${framework_dir}/package.json').version")" = "0.7.6"
+test "$(git -C "${framework_dir}" rev-parse HEAD)" = "e617f090deaa294dacd033afa52c09f811a3e690"
 for required in \
   "${doom_web}/dhewm3-base.js" "${doom_web}/dhewm3-base.wasm" \
   "${doom_web}/dhewm3-roe.js" "${doom_web}/dhewm3-roe.wasm" \
   "${quake_web}/openQ4-client_wasm32.js" "${quake_web}/openQ4-client_wasm32.wasm" \
   "${quake_web}/baseoq4/game-sp_wasm32.wasm" "${quake_web}/baseoq4/game-mp_wasm32.wasm" \
-  "${quake_web}/baseoq4/pak0.pk4" "${quake_web}/baseoq4/pak1.pk4"; do
+  "${quake_web}/baseoq4/pak0.pk4" "${quake_web}/baseoq4/pak1.pk4" \
+  "${prey_web}/prey06.js" "${prey_web}/prey06.wasm"; do
   test -s "${required}" || { echo "Missing ${required}; run scripts/build-all.sh first." >&2; exit 1; }
 done
 
@@ -35,6 +37,11 @@ done
 for artifact in q4-worker.js openQ4-client_wasm32.js openQ4-client_wasm32.wasm quake4.ico quake4-pwa.svg quake4-background.png; do
   install -m 0644 "${quake_web}/${artifact}" "${site}/${artifact}"
 done
+install -m 0644 "${prey_web}/prey06.js" "${site}/prey06.js"
+install -m 0644 "${prey_web}/prey06.wasm" "${site}/prey06.wasm"
+install -m 0644 "${repo_root}/site/prey-worker.js" "${site}/prey-worker.js"
+install -m 0644 "${work_root}/prey2006/neo/sys/win32/rc/res/prey.ico" "${site}/prey.ico"
+node "${repo_root}/scripts/extract-ico-png.mjs" "${site}/prey.ico" "${site}/prey-256.png"
 for artifact in game-sp_wasm32.wasm game-mp_wasm32.wasm mod.json pak0.pk4 pak1.pk4; do
   install -m 0644 "${quake_web}/baseoq4/${artifact}" "${site}/baseoq4/${artifact}"
 done
@@ -42,12 +49,14 @@ done
 node "${repo_root}/scripts/merge-data-manifests.mjs" \
   "${work_root}/dhewm3/web/wasm-game-data.json" \
   "${work_root}/openq4/docker/wasm-game-data.json" \
+  "${repo_root}/site/prey-data.json" \
   "${site}/wasm-game-data.json"
 
 install -m 0644 "${work_root}/dhewm3/COPYING.txt" "${site}/DHEWM3-COPYING.txt"
 install -m 0644 "${work_root}/openq4/docs/QUAKE4-SDK-EULA.rtf" "${site}/QUAKE4-SDK-EULA.rtf"
 install -m 0644 "${work_root}/openq4/docs/REDISTRIBUTION.md" "${site}/QUAKE4-REDISTRIBUTION.md"
 install -m 0644 "${repo_root}/site/IDTECH4-NOTICES.txt" "${site}/IDTECH4-NOTICES.txt"
+install -m 0644 "${work_root}/prey2006/.github/COPYING.txt" "${site}/PREY2006-COPYING.txt"
 
 metadata_dir="$(mktemp -d -t idtech4-framework.XXXXXX)"
 trap 'rm -rf -- "${metadata_dir}"' EXIT
@@ -57,9 +66,11 @@ install -m 0644 "${metadata_dir}/wasm-game-framework.json" "${site}/wasm-game-fr
 node --check "${site}/game-adapter.js"
 node --check "${site}/d3-worker.js"
 node --check "${site}/q4-worker.js"
+node --check "${site}/prey-worker.js"
 node --check "${site}/dhewm3-base.js"
 node --check "${site}/dhewm3-roe.js"
 node --check "${site}/openQ4-client_wasm32.js"
+node --check "${site}/prey06.js"
 node -e 'for (const path of process.argv.slice(1)) JSON.parse(fs.readFileSync(path, "utf8"))' \
   "${site}/wasm-game.json" "${site}/wasm-game-data.json" "${site}/baseoq4/mod.json"
 node -e '
@@ -71,7 +82,8 @@ node -e '
 for wasm in \
   "${site}/dhewm3-base.wasm" "${site}/dhewm3-roe.wasm" \
   "${site}/openQ4-client_wasm32.wasm" \
-  "${site}/baseoq4/game-sp_wasm32.wasm" "${site}/baseoq4/game-mp_wasm32.wasm"; do
+  "${site}/baseoq4/game-sp_wasm32.wasm" "${site}/baseoq4/game-mp_wasm32.wasm" \
+  "${site}/prey06.wasm"; do
   test "$(od -An -tx1 -N4 "${wasm}" | tr -d ' \n')" = "0061736d"
 done
 test "$(md5sum "${site}/baseoq4/pak0.pk4" | awk '{print $1}')" = "17550cb028326cdf1cee440bc5d73d74"
@@ -87,6 +99,7 @@ test ! -e "${site}/service-worker.js"
 expected_files="$(cat <<'EOF'
 DHEWM3-COPYING.txt
 IDTECH4-NOTICES.txt
+PREY2006-COPYING.txt
 QUAKE4-REDISTRIBUTION.md
 QUAKE4-SDK-EULA.rtf
 baseoq4/game-mp_wasm32.wasm
@@ -104,6 +117,11 @@ doom3.ico
 game-adapter.js
 openQ4-client_wasm32.js
 openQ4-client_wasm32.wasm
+prey-256.png
+prey-worker.js
+prey.ico
+prey06.js
+prey06.wasm
 q4-worker.js
 quake4-background.png
 quake4-pwa.svg
@@ -120,4 +138,4 @@ test "${actual_files}" = "${expected_files}"
 node "${repo_root}/scripts/test-adapter.mjs" "${site}"
 node "${framework_dir}/scripts/check-game-package.js" "${site}"
 
-printf 'Staged retail-free id Tech 4 family site at %s\n' "${site}"
+printf 'Staged id Tech 4 family site at %s\n' "${site}"
